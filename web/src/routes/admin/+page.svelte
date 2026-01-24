@@ -16,6 +16,16 @@
 		last_login: string | null;
 	}
 
+	interface Announcement {
+		id: number;
+		title: string;
+		content: string;
+		is_important: boolean;
+		is_active: boolean;
+		created_at: string;
+		created_by_name: string;
+	}
+
 	let users = $state<User[]>([]);
 	let totalCount = $state(0);
 	let pendingCount = $state(0);
@@ -23,10 +33,17 @@
 	let error = $state('');
 	let actionLoading = $state<number | null>(null);
 
+	// Announcements
+	let announcements = $state<Announcement[]>([]);
+	let announcementsLoading = $state(true);
+	let showAnnouncementForm = $state(false);
+	let editingAnnouncement = $state<Announcement | null>(null);
+	let announcementForm = $state({ title: '', content: '', is_important: false });
+
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
-		await loadUsers();
+		await Promise.all([loadUsers(), loadAnnouncements()]);
 	});
 
 	function getAuthHeaders() {
@@ -148,6 +165,92 @@
 			minute: '2-digit',
 		});
 	}
+
+	// Announcement functions
+	async function loadAnnouncements() {
+		announcementsLoading = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/announcements/all`, {
+				headers: getAuthHeaders(),
+			});
+			if (response.ok) {
+				const data = await response.json();
+				announcements = data.announcements;
+			}
+		} catch (e) {
+			console.error('Failed to load announcements:', e);
+		} finally {
+			announcementsLoading = false;
+		}
+	}
+
+	function openNewAnnouncementForm() {
+		editingAnnouncement = null;
+		announcementForm = { title: '', content: '', is_important: false };
+		showAnnouncementForm = true;
+	}
+
+	function openEditAnnouncementForm(a: Announcement) {
+		editingAnnouncement = a;
+		announcementForm = { title: a.title, content: a.content, is_important: a.is_important };
+		showAnnouncementForm = true;
+	}
+
+	function closeAnnouncementForm() {
+		showAnnouncementForm = false;
+		editingAnnouncement = null;
+		announcementForm = { title: '', content: '', is_important: false };
+	}
+
+	async function saveAnnouncement() {
+		if (!announcementForm.title.trim()) {
+			alert('제목을 입력하세요');
+			return;
+		}
+
+		try {
+			const url = editingAnnouncement
+				? `${API_BASE}/api/announcements/${editingAnnouncement.id}`
+				: `${API_BASE}/api/announcements`;
+			const method = editingAnnouncement ? 'PUT' : 'POST';
+
+			const response = await fetch(url, {
+				method,
+				headers: getAuthHeaders(),
+				body: JSON.stringify(announcementForm),
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.detail || '저장에 실패했습니다');
+			}
+
+			closeAnnouncementForm();
+			await loadAnnouncements();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
+		}
+	}
+
+	async function deleteAnnouncement(id: number) {
+		if (!confirm('정말 삭제하시겠습니까?')) return;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/announcements/${id}`, {
+				method: 'DELETE',
+				headers: getAuthHeaders(),
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.detail || '삭제에 실패했습니다');
+			}
+
+			await loadAnnouncements();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -240,6 +343,91 @@
 			{#if users.length === 0}
 				<div class="empty">등록된 사용자가 없습니다</div>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- Announcements Section -->
+	<section class="section">
+		<div class="section-header">
+			<h2><Icon name="bell" size={20} /> 공지사항 관리</h2>
+			<button class="btn-add" onclick={openNewAnnouncementForm}>+ 새 공지</button>
+		</div>
+
+		{#if announcementsLoading}
+			<div class="loading">로딩 중...</div>
+		{:else}
+			<div class="announcement-list">
+				{#each announcements as a}
+					<div class="announcement-card" class:important={a.is_important} class:inactive={!a.is_active}>
+						<div class="announcement-info">
+							<div class="announcement-title">
+								{#if a.is_important}
+									<span class="badge important">중요</span>
+								{/if}
+								{#if !a.is_active}
+									<span class="badge inactive">비활성</span>
+								{/if}
+								{a.title}
+							</div>
+							<div class="announcement-content">{a.content || '(내용 없음)'}</div>
+							<div class="announcement-meta">
+								{a.created_by_name} · {formatDate(a.created_at)}
+							</div>
+						</div>
+						<div class="announcement-actions">
+							<button class="btn-icon" onclick={() => openEditAnnouncementForm(a)}>
+								<Icon name="edit" size={16} />
+							</button>
+							<button class="btn-icon delete" onclick={() => deleteAnnouncement(a.id)}>
+								<Icon name="trash" size={16} />
+							</button>
+						</div>
+					</div>
+				{/each}
+
+				{#if announcements.length === 0}
+					<div class="empty">등록된 공지사항이 없습니다</div>
+				{/if}
+			</div>
+		{/if}
+	</section>
+
+	<!-- Announcement Form Modal -->
+	{#if showAnnouncementForm}
+		<div class="modal-overlay" onclick={closeAnnouncementForm}>
+			<div class="modal" onclick={(e) => e.stopPropagation()}>
+				<h3>{editingAnnouncement ? '공지사항 수정' : '새 공지사항'}</h3>
+				<form onsubmit={(e) => { e.preventDefault(); saveAnnouncement(); }}>
+					<div class="form-group">
+						<label for="title">제목</label>
+						<input
+							id="title"
+							type="text"
+							bind:value={announcementForm.title}
+							placeholder="공지 제목"
+						/>
+					</div>
+					<div class="form-group">
+						<label for="content">내용</label>
+						<textarea
+							id="content"
+							bind:value={announcementForm.content}
+							placeholder="공지 내용 (선택)"
+							rows="3"
+						></textarea>
+					</div>
+					<div class="form-group checkbox">
+						<label>
+							<input type="checkbox" bind:checked={announcementForm.is_important} />
+							중요 공지로 표시
+						</label>
+					</div>
+					<div class="form-actions">
+						<button type="button" class="btn cancel" onclick={closeAnnouncementForm}>취소</button>
+						<button type="submit" class="btn save">저장</button>
+					</div>
+				</form>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -444,5 +632,226 @@
 		background: #161b22;
 		border: 1px solid #30363d;
 		border-radius: 10px;
+	}
+
+	/* Announcements Section */
+	.section {
+		margin-top: 2rem;
+	}
+
+	.section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+	}
+
+	.section-header h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1.25rem;
+		margin: 0;
+	}
+
+	.btn-add {
+		background: #238636;
+		color: white;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.btn-add:hover {
+		background: #2ea043;
+	}
+
+	.announcement-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.announcement-card {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 10px;
+		padding: 0.875rem;
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 0.75rem;
+	}
+
+	.announcement-card.important {
+		border-color: #f0883e;
+	}
+
+	.announcement-card.inactive {
+		opacity: 0.6;
+	}
+
+	.announcement-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.announcement-title {
+		font-weight: 600;
+		color: #f0f6fc;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.25rem;
+	}
+
+	.announcement-content {
+		font-size: 0.8rem;
+		color: #8b949e;
+		margin-bottom: 0.25rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.announcement-meta {
+		font-size: 0.7rem;
+		color: #6e7681;
+	}
+
+	.badge.important {
+		background: rgba(240, 136, 62, 0.2);
+		color: #f0883e;
+	}
+
+	.badge.inactive {
+		background: rgba(110, 118, 129, 0.2);
+		color: #6e7681;
+	}
+
+	.announcement-actions {
+		display: flex;
+		gap: 0.25rem;
+	}
+
+	.btn-icon {
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		padding: 0.4rem;
+		cursor: pointer;
+		color: #8b949e;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.btn-icon:hover {
+		color: #f0f6fc;
+		border-color: #8b949e;
+	}
+
+	.btn-icon.delete:hover {
+		color: #f85149;
+		border-color: #f85149;
+	}
+
+	/* Modal */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.75);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.modal {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 12px;
+		padding: 1.5rem;
+		width: 100%;
+		max-width: 400px;
+	}
+
+	.modal h3 {
+		margin: 0 0 1rem;
+		font-size: 1.1rem;
+	}
+
+	.form-group {
+		margin-bottom: 1rem;
+	}
+
+	.form-group label {
+		display: block;
+		font-size: 0.8rem;
+		color: #8b949e;
+		margin-bottom: 0.375rem;
+	}
+
+	.form-group.checkbox label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		color: #f0f6fc;
+	}
+
+	.form-group input[type="text"],
+	.form-group textarea {
+		width: 100%;
+		padding: 0.625rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #f0f6fc;
+		font-size: 0.9rem;
+	}
+
+	.form-group input:focus,
+	.form-group textarea:focus {
+		outline: none;
+		border-color: #58a6ff;
+	}
+
+	.form-group textarea {
+		resize: vertical;
+		font-family: inherit;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 1.5rem;
+	}
+
+	.form-actions .btn {
+		flex: 1;
+	}
+
+	.btn.cancel {
+		background: #21262d;
+		color: #8b949e;
+		border: 1px solid #30363d;
+	}
+
+	.btn.save {
+		background: #238636;
+		color: white;
+	}
+
+	.btn.save:hover {
+		background: #2ea043;
 	}
 </style>
