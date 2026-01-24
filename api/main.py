@@ -266,10 +266,12 @@ async def get_regsho():
         if briefing and briefing["portfolio"]:
             portfolio_tickers = {item["ticker"] for item in briefing["portfolio"]}
 
-        # Get latest RegSHO list
+        # Get latest RegSHO list with days on list
         cur.execute(
             """
-            SELECT ticker, security_name, market_category, collected_date, collected_at
+            SELECT ticker, security_name, market_category, collected_date, collected_at,
+                   first_seen_date,
+                   (CURRENT_DATE - first_seen_date) as days_on_list
             FROM regsho_list
             WHERE collected_date = (SELECT MAX(collected_date) FROM regsho_list)
             ORDER BY ticker
@@ -287,11 +289,13 @@ async def get_regsho():
         result = []
         holdings_on_list = []
         for row in regsho_list:
+            days = row["days_on_list"] if row["days_on_list"] else 0
             item = {
                 "ticker": row["ticker"],
                 "security_name": row["security_name"],
                 "market_category": row["market_category"],
                 "is_holding": row["ticker"] in portfolio_tickers,
+                "days_on_list": days.days if hasattr(days, 'days') else int(days),
             }
             result.append(item)
             if item["is_holding"]:

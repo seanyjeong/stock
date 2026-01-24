@@ -297,6 +297,7 @@
 						{#each regsho.regsho_list.slice(0, regshoExpanded ? regsho.regsho_list.length : 10) as item}
 							<div class="regsho-item" class:holding={item.is_holding}>
 								<span class="regsho-ticker">{item.ticker}</span>
+								<span class="regsho-days">+{item.days_on_list || 0}일</span>
 								<span class="regsho-name">{item.security_name}</span>
 							</div>
 						{/each}
@@ -793,6 +794,12 @@
 
 	.regsho-item.holding .regsho-ticker {
 		color: #3fb950;
+	}
+
+	.regsho-days {
+		font-size: 0.7rem;
+		color: #f0883e;
+		min-width: 35px;
 	}
 
 	.regsho-name {
