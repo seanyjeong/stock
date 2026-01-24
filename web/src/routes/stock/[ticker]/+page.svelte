@@ -148,6 +148,9 @@
 				rightPriceScale: {
 					borderColor: '#30363d',
 				},
+				watermark: {
+					visible: false,
+				},
 			};
 
 			// Main chart
@@ -288,31 +291,31 @@
 		<div class="loading">차트 로딩 중...</div>
 	{:else if chartData}
 		<div class="summary card">
-			<div class="indicator">
-				<span class="label">RSI</span>
+			<div class="indicator" title="RSI (상대강도지수): 70 이상 = 과매수 (하락 가능성), 30 이하 = 과매도 (상승 가능성)">
+				<span class="label">RSI <span class="help">?</span></span>
 				<span class="value" class:overbought={chartData.summary.rsi && chartData.summary.rsi >= 70} class:oversold={chartData.summary.rsi && chartData.summary.rsi <= 30}>
 					{chartData.summary.rsi ?? '-'}
 				</span>
 				<span class="signal">{chartData.summary.rsi_signal}</span>
 			</div>
-			<div class="indicator">
-				<span class="label">MACD</span>
+			<div class="indicator" title="MACD (이동평균수렴확산): 양수 = 상승추세, 음수 = 하락추세. 시그널선 교차시 매매신호">
+				<span class="label">MACD <span class="help">?</span></span>
 				<span class="value">{chartData.summary.macd ?? '-'}</span>
 			</div>
 		</div>
 
 		<div class="chart-section">
-			<div class="chart-title">캔들스틱 ({chartData.candles.length}개)</div>
+			<div class="chart-title" title="캔들스틱: 빨간색 = 하락, 초록색 = 상승. 몸통은 시가-종가, 꼬리는 고가-저가">캔들스틱 ({chartData.candles.length}개) <span class="help">?</span></div>
 			<div class="chart-container" bind:this={mainChartContainer} id="main-chart"></div>
 		</div>
 
 		<div class="chart-section">
-			<div class="chart-title">RSI (14)</div>
+			<div class="chart-title" title="RSI: 14일 기준 상대강도지수. 30 이하 = 과매도 (매수 기회), 70 이상 = 과매수 (매도 고려)">RSI (14) <span class="help">?</span></div>
 			<div class="chart-container small" bind:this={rsiChartContainer} id="rsi-chart"></div>
 		</div>
 
 		<div class="chart-section">
-			<div class="chart-title">MACD</div>
+			<div class="chart-title" title="MACD: 파란선(MACD)이 주황선(시그널) 위로 교차 = 매수신호, 아래로 교차 = 매도신호">MACD <span class="help">?</span></div>
 			<div class="chart-container small" bind:this={macdChartContainer} id="macd-chart"></div>
 		</div>
 	{/if}
@@ -464,6 +467,25 @@
 		font-size: 0.85rem;
 		color: #8b949e;
 		margin-bottom: 0.5rem;
+		cursor: help;
+	}
+
+	.help {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 14px;
+		height: 14px;
+		font-size: 0.65rem;
+		background: #21262d;
+		border-radius: 50%;
+		color: #8b949e;
+		margin-left: 0.25rem;
+		cursor: help;
+	}
+
+	.indicator[title] {
+		cursor: help;
 	}
 
 	.chart-container {

@@ -7,6 +7,7 @@
 	interface Holding {
 		id: number;
 		ticker: string;
+		company_name?: string;
 		shares: number;
 		avg_cost: number;
 		current_price: number;
@@ -340,7 +341,12 @@
 				{#each holdings as holding}
 					<div class="holding-card card">
 						<div class="holding-header">
-							<a href="/stock/{holding.ticker}" class="ticker">{holding.ticker}</a>
+							<div class="ticker-with-name">
+								<a href="/stock/{holding.ticker}" class="ticker">{holding.ticker}</a>
+								{#if holding.company_name}
+									<span class="company-name">{holding.company_name}</span>
+								{/if}
+							</div>
 							<span class="gain {getGainClass(holding.gain)}">
 								{formatCurrency(holding.gain)} ({formatPercent(holding.gain_pct)})
 							</span>
@@ -702,6 +708,17 @@
 
 	.holding-header .ticker:hover {
 		text-decoration: underline;
+	}
+
+	.ticker-with-name {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.company-name {
+		font-size: 0.7rem;
+		color: #8b949e;
 	}
 
 	.holding-header .gain {
