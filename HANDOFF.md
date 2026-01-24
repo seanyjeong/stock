@@ -31,16 +31,28 @@
 
 ## 다음 세션에서 할 일
 
-### 1. 카카오 로그인 구현
+### 1. 카카오 로그인 + 권한 시스템
 ```
 참고: ~/mprojects/ 에 카카오 로그인 구현되어 있음
-- 토큰 값 참고
-- REST API Key 필요
+
+권한 구조:
+- Sean (첫 로그인) = admin + user
+- 다른 사람 = user (승인 필요)
 
 로직:
-1. 카카오 로그인 → 사용자 생성/조회
-2. 최초 로그인 시 → portfolio.md 데이터 자동 연동
-3. 이후 → DB에서 CRUD
+1. 카카오 로그인 → 사용자 생성
+2. 첫 번째 사용자 → 자동 admin 권한
+3. 이후 사용자 → pending 상태 (승인 대기)
+4. admin만 승인 페이지 접근 가능 (/admin/users)
+5. 승인되면 → 로그인 가능
+
+DB:
+users (
+  id, kakao_id, nickname, profile_image,
+  role: 'admin' | 'user',
+  status: 'active' | 'pending',
+  created_at
+)
 ```
 
 ### 2. 블로그 UI 추가
