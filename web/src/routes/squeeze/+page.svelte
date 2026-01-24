@@ -44,7 +44,11 @@
 		error = '';
 
 		try {
-			const response = await fetch(`${API_BASE}/api/squeeze`);
+			const token = browser ? localStorage.getItem('auth_token') : null;
+			const headers: Record<string, string> = {};
+			if (token) headers['Authorization'] = `Bearer ${token}`;
+
+			const response = await fetch(`${API_BASE}/api/squeeze`, { headers });
 			if (!response.ok) throw new Error('데이터를 불러올 수 없습니다');
 			data = await response.json();
 		} catch (e) {
