@@ -505,7 +505,7 @@ wheels = [
 
 [[package]]
 name = "dailystockstory"
-version = "0.1.0"
+version = "1.9.0"
 source = { virtual = "." }
 dependencies = [
     { name = "beautifulsoup4" },

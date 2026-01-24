@@ -306,38 +306,39 @@
 				</section>
 			{/if}
 
-			<!-- RegSHO Section -->
-			{#if regsho}
+			<!-- RegSHO Top 5 by Score -->
+			{#if squeeze?.squeeze_list?.length > 0}
+				{@const top5 = [...squeeze.squeeze_list].sort((a, b) => b.combined_score - a.combined_score).slice(0, 5)}
 				<section class="card regsho-card">
-					<h2><Icon name="shield" size={20} /> RegSHO Threshold List</h2>
-					<p class="regsho-desc">5일 연속 결제 실패 종목 - 숏스퀴즈 가능성 높음</p>
-					{#if regsho.holdings_on_list.length > 0}
-						<div class="alert-box">
-							<span class="alert-icon"><Icon name="fire" size={18} /></span>
-							<span>보유 종목 등재: <strong>{regsho.holdings_on_list.join(', ')}</strong></span>
-						</div>
-					{/if}
-					<p class="regsho-stats">총 {regsho.total_count}개 종목 | {regsho.collected_date}</p>
-
-					<div class="regsho-header-row">
-						<span class="col-ticker">티커</span>
-						<span class="col-days">연속등재일</span>
-						<span class="col-name">종목명</span>
+					<div class="regsho-title-row">
+						<h2><Icon name="fire" size={20} /> RegSHO Top 5</h2>
+						<a href="/squeeze" class="see-all-link">전체보기 →</a>
 					</div>
-					<div class="regsho-list">
-						{#each regsho.regsho_list.slice(0, regshoExpanded ? regsho.regsho_list.length : 10) as item}
-							<div class="regsho-item" class:holding={item.is_holding}>
-								<span class="regsho-ticker">{item.ticker}</span>
-								<span class="regsho-days">+{item.days_on_list || 0}일</span>
-								<span class="regsho-name">{item.security_name}</span>
-							</div>
+					<p class="regsho-desc">숏스퀴즈 점수 상위 종목</p>
+
+					<div class="squeeze-header-row">
+						<span class="col-ticker">티커</span>
+						<span class="col-metric">SI%</span>
+						<span class="col-metric">BR%</span>
+						<span class="col-metric">DTC</span>
+						<span class="col-score">점수</span>
+					</div>
+					<div class="squeeze-list">
+						{#each top5 as item}
+							{@const isHolding = regsho?.holdings_on_list?.includes(item.ticker)}
+							<a href="/stock/{item.ticker}" class="squeeze-item" class:holding={isHolding}>
+								<span class="squeeze-ticker">
+									{item.ticker}
+									{#if item.zero_borrow}<span class="mini-badge zb">ZB</span>{/if}
+									{#if item.dilution_protected}<span class="mini-badge dp">DP</span>{/if}
+								</span>
+								<span class="squeeze-metric">{item.short_interest ? item.short_interest.toFixed(0) : '-'}</span>
+								<span class="squeeze-metric">{item.zero_borrow ? '-' : (item.borrow_rate ? item.borrow_rate.toFixed(0) : '-')}</span>
+								<span class="squeeze-metric">{item.days_to_cover ? item.days_to_cover.toFixed(1) : '-'}</span>
+								<span class="squeeze-score-cell {item.rating.toLowerCase()}">{item.combined_score.toFixed(0)}</span>
+							</a>
 						{/each}
 					</div>
-					{#if regsho.total_count > 10}
-						<button class="show-more-btn" onclick={() => regshoExpanded = !regshoExpanded}>
-							{regshoExpanded ? '접기' : `더보기 (${regsho.total_count - 10}개 더)`}
-						</button>
-					{/if}
 				</section>
 			{/if}
 
@@ -950,6 +951,143 @@
 
 	.show-more-btn:hover {
 		background: #30363d;
+	}
+
+	/* Squeeze Top 5 Styles */
+	.regsho-title-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.regsho-title-row h2 {
+		margin: 0;
+	}
+
+	.see-all-link {
+		font-size: 0.75rem;
+		color: #58a6ff;
+		text-decoration: none;
+	}
+
+	.see-all-link:hover {
+		text-decoration: underline;
+	}
+
+	.squeeze-header-row {
+		display: flex;
+		align-items: center;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.7rem;
+		color: #8b949e;
+		border-bottom: 1px solid #30363d;
+		margin-bottom: 0.25rem;
+	}
+
+	.squeeze-header-row .col-ticker {
+		flex: 1;
+		font-weight: 600;
+	}
+
+	.squeeze-header-row .col-metric {
+		width: 45px;
+		text-align: center;
+		font-weight: 600;
+	}
+
+	.squeeze-header-row .col-score {
+		width: 45px;
+		text-align: center;
+		font-weight: 600;
+	}
+
+	.squeeze-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.squeeze-item {
+		display: flex;
+		align-items: center;
+		background: #21262d;
+		padding: 0.625rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.8rem;
+		text-decoration: none;
+		color: inherit;
+		transition: background 0.15s;
+	}
+
+	.squeeze-item:hover {
+		background: #30363d;
+	}
+
+	.squeeze-item.holding {
+		background: rgba(63, 185, 80, 0.15);
+		border: 1px solid #238636;
+	}
+
+	.squeeze-ticker {
+		flex: 1;
+		font-weight: 600;
+		color: #58a6ff;
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.squeeze-item.holding .squeeze-ticker {
+		color: #3fb950;
+	}
+
+	.mini-badge {
+		font-size: 0.55rem;
+		padding: 0.1rem 0.25rem;
+		border-radius: 3px;
+		font-weight: 600;
+	}
+
+	.mini-badge.zb {
+		background: rgba(248, 81, 73, 0.3);
+		color: #f85149;
+	}
+
+	.mini-badge.dp {
+		background: rgba(63, 185, 80, 0.3);
+		color: #3fb950;
+	}
+
+	.squeeze-metric {
+		width: 45px;
+		text-align: center;
+		color: #8b949e;
+		font-size: 0.75rem;
+	}
+
+	.squeeze-score-cell {
+		width: 45px;
+		text-align: center;
+		font-weight: 700;
+		font-size: 0.8rem;
+		padding: 0.2rem 0.4rem;
+		border-radius: 4px;
+	}
+
+	.squeeze-score-cell.hot {
+		background: rgba(248, 81, 73, 0.3);
+		color: #ff6b6b;
+	}
+
+	.squeeze-score-cell.watch {
+		background: rgba(240, 136, 62, 0.3);
+		color: #f0883e;
+	}
+
+	.squeeze-score-cell.cold {
+		background: rgba(139, 148, 158, 0.2);
+		color: #8b949e;
 	}
 
 	.positive {

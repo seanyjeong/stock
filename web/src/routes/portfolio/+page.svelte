@@ -23,7 +23,19 @@
 		type: string;
 	}
 
+	interface Trade {
+		id: number;
+		ticker: string;
+		trade_type: 'buy' | 'sell';
+		shares: number;
+		price: number;
+		total_amount: number;
+		note: string | null;
+		traded_at: string;
+	}
+
 	let holdings = $state<Holding[]>([]);
+	let trades = $state<Trade[]>([]);
 	let total = $state({ value_usd: 0, value_krw: 0, cost_usd: 0, gain_usd: 0, gain_pct: 0 });
 	let isLoading = $state(true);
 	let error = $state('');
@@ -36,6 +48,7 @@
 	let selectedTicker = $state('');
 	let tradeShares = $state('');
 	let tradePrice = $state('');
+	let tradeNote = $state('');
 	let isSearching = $state(false);
 	let isSubmitting = $state(false);
 
@@ -45,8 +58,23 @@
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
-		await loadPortfolio();
+		await Promise.all([loadPortfolio(), loadTrades()]);
 	});
+
+	async function loadTrades() {
+		try {
+			const response = await fetch(`${API_BASE}/api/trades/`, {
+				headers: getAuthHeaders(),
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				trades = data.trades || [];
+			}
+		} catch (e) {
+			console.error('Failed to load trades:', e);
+		}
+	}
 
 	function getAuthHeaders() {
 		const token = localStorage.getItem('access_token');
@@ -149,6 +177,7 @@
 		selectedHolding = null;
 		tradeShares = '';
 		tradePrice = '';
+		tradeNote = '';
 		searchQuery = '';
 		searchResults = [];
 	}
@@ -177,6 +206,7 @@
 					trade_type: tradeMode,
 					shares: shares,
 					price: price,
+					note: tradeNote || null,
 				}),
 			});
 
@@ -188,7 +218,7 @@
 			const result = await response.json();
 			alert(result.message);
 			closeTrade();
-			await loadPortfolio();
+			await Promise.all([loadPortfolio(), loadTrades()]);
 		} catch (e) {
 			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
 		} finally {
@@ -305,6 +335,11 @@
 						<span class="amount">${(parseFloat(tradeShares) * parseFloat(tradePrice)).toFixed(2)}</span>
 					</div>
 				{/if}
+
+				<div class="form-group">
+					<label>메모 (선택)</label>
+					<input type="text" placeholder="예: 숏스퀴즈 기대" bind:value={tradeNote} />
+				</div>
 			{/if}
 
 			<div class="form-actions">
@@ -383,6 +418,51 @@
 					+ 첫 종목 매수하기
 				</button>
 			</div>
+		{/if}
+
+		<!-- 거래 이력 섹션 -->
+		{#if trades.length > 0}
+			<section class="trades-section">
+				<h2>거래 이력</h2>
+				<div class="trades-list">
+					{#each trades as trade}
+						<div class="trade-item card">
+							<div class="trade-header">
+								<span class="trade-ticker">{trade.ticker}</span>
+								<span class="trade-type {trade.trade_type}">
+									{trade.trade_type === 'buy' ? '매수' : '매도'}
+								</span>
+							</div>
+							<div class="trade-details">
+								<div class="trade-detail">
+									<span class="label">수량</span>
+									<span class="value">{trade.shares}주</span>
+								</div>
+								<div class="trade-detail">
+									<span class="label">단가</span>
+									<span class="value">{formatCurrency(trade.price)}</span>
+								</div>
+								<div class="trade-detail">
+									<span class="label">금액</span>
+									<span class="value">{formatCurrency(trade.total_amount)}</span>
+								</div>
+							</div>
+							{#if trade.note}
+								<div class="trade-note">{trade.note}</div>
+							{/if}
+							<div class="trade-date">
+								{new Date(trade.traded_at).toLocaleDateString('ko-KR', {
+									year: 'numeric',
+									month: 'short',
+									day: 'numeric',
+									hour: '2-digit',
+									minute: '2-digit'
+								})}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
 		{/if}
 	{/if}
 </div>
@@ -845,5 +925,97 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+	}
+
+	/* 거래 이력 스타일 */
+	.trades-section {
+		margin-top: 1.5rem;
+	}
+
+	.trades-section h2 {
+		font-size: 1rem;
+		color: #8b949e;
+		margin-bottom: 0.75rem;
+		font-weight: 600;
+	}
+
+	.trades-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.trade-item {
+		padding: 0.75rem;
+	}
+
+	.trade-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.trade-ticker {
+		font-weight: 700;
+		color: #58a6ff;
+	}
+
+	.trade-type {
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.trade-type.buy {
+		background: rgba(35, 134, 54, 0.2);
+		color: #3fb950;
+	}
+
+	.trade-type.sell {
+		background: rgba(218, 54, 51, 0.2);
+		color: #f85149;
+	}
+
+	.trade-details {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.trade-detail {
+		text-align: center;
+		background: #0d1117;
+		padding: 0.4rem;
+		border-radius: 4px;
+	}
+
+	.trade-detail .label {
+		display: block;
+		font-size: 0.6rem;
+		color: #8b949e;
+	}
+
+	.trade-detail .value {
+		display: block;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.trade-note {
+		font-size: 0.75rem;
+		color: #8b949e;
+		padding: 0.4rem;
+		background: #0d1117;
+		border-radius: 4px;
+		margin-bottom: 0.5rem;
+	}
+
+	.trade-date {
+		font-size: 0.7rem;
+		color: #6e7681;
+		text-align: right;
 	}
 </style>
