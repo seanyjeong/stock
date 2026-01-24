@@ -40,6 +40,7 @@
 	let isLoggedIn = $state(false);
 	let isAdmin = $state(false);
 	let blogExpanded = $state(true);
+	let regshoExpanded = $state(false);
 
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
@@ -279,7 +280,7 @@
 					<p class="regsho-stats">총 {regsho.total_count}개 종목 | {regsho.collected_date}</p>
 
 					<div class="regsho-list">
-						{#each regsho.regsho_list.slice(0, 10) as item}
+						{#each regsho.regsho_list.slice(0, regshoExpanded ? regsho.regsho_list.length : 10) as item}
 							<div class="regsho-item" class:holding={item.is_holding}>
 								<span class="regsho-ticker">{item.ticker}</span>
 								<span class="regsho-name">{item.security_name}</span>
@@ -287,7 +288,9 @@
 						{/each}
 					</div>
 					{#if regsho.total_count > 10}
-						<p class="show-more">상위 10개만 표시 (총 {regsho.total_count}개)</p>
+						<button class="show-more-btn" onclick={() => regshoExpanded = !regshoExpanded}>
+							{regshoExpanded ? '접기' : `더보기 (${regsho.total_count - 10}개 더)`}
+						</button>
 					{/if}
 				</section>
 			{/if}
@@ -771,6 +774,24 @@
 		color: #8b949e;
 		text-align: center;
 		margin: 0.75rem 0 0;
+	}
+
+	.show-more-btn {
+		display: block;
+		width: 100%;
+		padding: 0.5rem;
+		margin-top: 0.75rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: #58a6ff;
+		cursor: pointer;
+		text-align: center;
+	}
+
+	.show-more-btn:hover {
+		background: #30363d;
 	}
 
 	.positive {
