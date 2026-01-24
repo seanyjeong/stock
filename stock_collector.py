@@ -123,9 +123,26 @@ def init_db():
             days_to_cover DECIMAL(8,2),
             short_volume BIGINT,
             squeeze_score DECIMAL(8,2),
+            available_shares BIGINT,
+            float_shares BIGINT,
+            dilution_protected BOOLEAN DEFAULT FALSE,
             source VARCHAR(50),
             collected_at TIMESTAMP DEFAULT NOW()
         );
+
+        -- v2 컬럼 추가 (이미 테이블 있으면)
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='available_shares') THEN
+                ALTER TABLE squeeze_data ADD COLUMN available_shares BIGINT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='float_shares') THEN
+                ALTER TABLE squeeze_data ADD COLUMN float_shares BIGINT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='dilution_protected') THEN
+                ALTER TABLE squeeze_data ADD COLUMN dilution_protected BOOLEAN DEFAULT FALSE;
+            END IF;
+        END $$;
 
         CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker, collected_at DESC);
         CREATE INDEX IF NOT EXISTS idx_blog_posts_new ON blog_posts(is_new, collected_at DESC);
@@ -287,13 +304,145 @@ async def collect_exchange_rate(page):
 
 
 # ============================================================
-# 숏스퀴즈 데이터 수집 (yfinance)
+# Borrow Rate 수집 (shortablestocks.com - 무료)
+# ============================================================
+
+async def collect_borrow_rates(page, tickers):
+    """shortablestocks.com에서 Borrow 정보 수집"""
+    from playwright_stealth import Stealth
+
+    borrow_data = {}
+
+    # Stealth 적용 (봇 감지 우회)
+    stealth = Stealth()
+    await stealth.apply_stealth_async(page.context)
+
+    for ticker in tickers:
+        try:
+            url = f"https://www.shortablestocks.com/?{ticker}"
+            await page.goto(url, timeout=20000)
+            await page.wait_for_timeout(3000)
+
+            text = await page.inner_text("body")
+
+            # "Zero Borrow" = 빌릴 주식 없음 (극도로 높은 borrow rate)
+            is_zero_borrow = "zero borrow" in text.lower()
+
+            # Short Interest 데이터 추출
+            # 패턴: "12/31/2025	1,230,242	14,571,178	1"
+            si_match = re.search(r'\d{1,2}/\d{1,2}/\d{4}\s+([\d,]+)\s+([\d,]+)\s+(\d+)', text)
+
+            short_interest_shares = None
+            avg_volume = None
+            days_to_cover_official = None
+
+            if si_match:
+                short_interest_shares = int(si_match.group(1).replace(',', ''))
+                avg_volume = int(si_match.group(2).replace(',', ''))
+                days_to_cover_official = int(si_match.group(3))
+
+            # Zero Borrow = 999% (극도로 높음), 아니면 None
+            borrow_rate = 999.0 if is_zero_borrow else None
+
+            available = 0 if is_zero_borrow else None
+            borrow_data[ticker] = {
+                "borrow_rate": borrow_rate,
+                "available_shares": available,
+                "short_interest_shares": short_interest_shares,
+                "is_zero_borrow": is_zero_borrow,
+            }
+
+            if is_zero_borrow:
+                print(f"  🔥 {ticker}: ZERO BORROW! (빌릴 주식 없음)")
+            elif short_interest_shares:
+                print(f"  {ticker}: SI {short_interest_shares:,}주")
+            else:
+                print(f"  {ticker}: 데이터 없음")
+
+        except Exception as e:
+            print(f"  ❌ {ticker}: {e}")
+            borrow_data[ticker] = {
+                "borrow_rate": None,
+                "available_shares": None,
+                "short_interest_shares": None,
+                "is_zero_borrow": False,
+            }
+
+    return borrow_data
+
+
+# ============================================================
+# SEC EDGAR 워런트/희석 정보 (무료 API)
+# ============================================================
+
+async def collect_sec_dilution_info(tickers):
+    """SEC EDGAR에서 워런트/희석 관련 정보 수집"""
+    import httpx
+
+    dilution_data = {}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for ticker in tickers:
+            try:
+                # SEC EDGAR 회사 검색
+                search_url = f"https://efts.sec.gov/LATEST/search-index?q={ticker}&dateRange=custom&startdt=2024-01-01&forms=8-K,10-K,10-Q"
+                headers = {"User-Agent": "DailyStockStory/1.0 (contact@example.com)"}
+
+                resp = await client.get(search_url, headers=headers)
+
+                # 키워드 검색: warrant, dilution, covenant, debt
+                dilution_keywords = ["warrant", "dilution", "covenant", "debt", "convertible", "exercise price"]
+                found_keywords = []
+
+                if resp.status_code == 200:
+                    text = resp.text.lower()
+                    for kw in dilution_keywords:
+                        if kw in text:
+                            found_keywords.append(kw)
+
+                dilution_data[ticker] = {
+                    "has_warrant_info": "warrant" in found_keywords or "exercise price" in found_keywords,
+                    "has_debt_covenant": "covenant" in found_keywords or "debt" in found_keywords,
+                    "dilution_risk": "dilution" in found_keywords or "convertible" in found_keywords,
+                    "keywords_found": found_keywords,
+                }
+
+                if found_keywords:
+                    print(f"  {ticker}: SEC 키워드 발견 - {', '.join(found_keywords)}")
+                else:
+                    print(f"  {ticker}: SEC 관련 정보 없음")
+
+            except Exception as e:
+                print(f"  ❌ {ticker} SEC: {e}")
+                dilution_data[ticker] = {
+                    "has_warrant_info": False,
+                    "has_debt_covenant": False,
+                    "dilution_risk": False,
+                    "keywords_found": [],
+                }
+
+    return dilution_data
+
+
+# ============================================================
+# 숏스퀴즈 데이터 수집 (yfinance + Chartexchange)
 # ============================================================
 
 async def collect_squeeze_data(page, tickers):
-    """yfinance에서 숏스퀴즈 관련 데이터 수집"""
+    """숏스퀴즈 관련 데이터 수집 (v2: yfinance + Borrow Rate + SEC)"""
     import yfinance as yf
 
+    # RegSHO + 보유종목 전체 수집 (cron이니까 시간 OK)
+    print(f"  📊 Borrow Rate 수집 ({len(tickers)}개 종목)...")
+    borrow_data = await collect_borrow_rates(page, tickers)
+
+    # SEC 희석 정보는 보유 종목만 (API 요청 제한)
+    priority_tickers = [h["ticker"] for h in HOLDINGS] + [w["ticker"] for w in WATCHLIST]
+    print(f"  📋 SEC 희석 정보 수집 ({len(priority_tickers)}개 보유/워치 종목)...")
+    dilution_data = await collect_sec_dilution_info(priority_tickers)
+
+    # 3. yfinance 데이터 + 통합
+    print("  📈 yfinance 데이터 수집...")
     squeeze_data = {}
 
     for ticker in tickers:
@@ -314,19 +463,35 @@ async def collect_squeeze_data(page, tickers):
             # Float shares for context
             float_shares = info.get("floatShares")
 
-            # 스퀴즈 점수 계산 (0-100)
-            # borrow_rate는 yfinance에서 제공하지 않음
-            squeeze_score = calculate_squeeze_score(None, short_interest, days_to_cover)
+            # Borrow Rate & SEC 정보 통합
+            borrow_info = borrow_data.get(ticker, {})
+            dilution_info = dilution_data.get(ticker, {})
+            borrow_rate = borrow_info.get("borrow_rate")
+            available_shares = borrow_info.get("available_shares")
+
+            # 스퀴즈 점수 v2 계산 (0-100)
+            squeeze_score = calculate_squeeze_score_v2(
+                borrow_rate=borrow_rate,
+                short_interest=short_interest,
+                days_to_cover=days_to_cover,
+                available_shares=available_shares,
+                has_warrant_info=dilution_info.get("has_warrant_info", False),
+                has_debt_covenant=dilution_info.get("has_debt_covenant", False),
+                float_shares=float_shares,
+            )
 
             squeeze_data[ticker] = {
-                "borrow_rate": None,  # yfinance doesn't provide this
+                "borrow_rate": borrow_rate,
                 "short_interest": short_interest,
                 "days_to_cover": round(days_to_cover, 2) if days_to_cover else None,
                 "short_volume": short_volume,
                 "squeeze_score": squeeze_score,
+                "available_shares": available_shares,
+                "float_shares": float_shares,
+                "dilution_protected": dilution_info.get("has_warrant_info") or dilution_info.get("has_debt_covenant"),
             }
 
-            print(f"  {ticker}: SI {short_interest}% | DTC {days_to_cover} | Score {squeeze_score}")
+            print(f"  {ticker}: SI {short_interest}% | BR {borrow_rate}% | Score {squeeze_score}")
 
         except Exception as e:
             print(f"  ❌ {ticker}: {e}")
@@ -336,33 +501,87 @@ async def collect_squeeze_data(page, tickers):
                 "days_to_cover": None,
                 "short_volume": None,
                 "squeeze_score": None,
+                "available_shares": None,
+                "float_shares": None,
+                "dilution_protected": False,
             }
 
     return squeeze_data
 
 
-def calculate_squeeze_score(borrow_rate, short_interest, days_to_cover):
+def calculate_squeeze_score_v2(borrow_rate, short_interest, days_to_cover,
+                               available_shares=None, has_warrant_info=False,
+                               has_debt_covenant=False, float_shares=None):
     """
-    숏스퀴즈 확률 점수 계산 (0-100)
-    - Short Interest: 높을수록 좋음 (60% 가중치) - borrow rate 없어서 가중치 증가
-    - Days to Cover: 높을수록 좋음 (40% 가중치)
+    숏스퀴즈 확률 점수 v2 (0-100)
+
+    Base Score (0-60):
+      - Short Interest: 0-25점 (50%+ = 만점)
+      - Borrow Rate: 0-20점 (200%+ = 만점)
+      - Days to Cover: 0-15점 (10일+ = 만점)
+
+    Squeeze Pressure Bonus (0-25):
+      - No shares available: +10점
+      - Low float (<10M): +5점
+      - Warrant/debt protection: +10점
+
+    Urgency Bonus (0-15):
+      - Very high borrow rate (>300%): +10점
+      - Extreme short interest (>40%): +5점
     """
-    if not any([short_interest, days_to_cover]):
+    if not any([borrow_rate, short_interest, days_to_cover]):
         return None
 
     score = 0
 
-    # Short Interest 점수 (0-60): 50%+ = 만점, 0% = 0점
+    # === Base Score (0-60) ===
+
+    # Short Interest 점수 (0-25): 50%+ = 만점
     if short_interest:
-        si_score = min(short_interest * 2, 100) * 0.6
+        si_score = min(short_interest / 50 * 25, 25)
         score += si_score
 
-    # Days to Cover 점수 (0-40): 10일+ = 만점, 0일 = 0점
+    # Borrow Rate 점수 (0-20): 200%+ = 만점
+    if borrow_rate:
+        br_score = min(borrow_rate / 200 * 20, 20)
+        score += br_score
+
+    # Days to Cover 점수 (0-15): 10일+ = 만점
     if days_to_cover:
-        dtc_score = min(days_to_cover * 10, 100) * 0.4
+        dtc_score = min(days_to_cover / 10 * 15, 15)
         score += dtc_score
 
-    return round(score, 1)
+    # === Squeeze Pressure Bonus (0-25) ===
+
+    # No shares available = 쇼티 빌릴 주식 없음
+    if available_shares is not None and available_shares == 0:
+        score += 10
+
+    # Low float = 작은 유동주식수
+    if float_shares and float_shares < 10_000_000:
+        score += 5
+
+    # Warrant/Debt protection = 희석 방어
+    if has_warrant_info or has_debt_covenant:
+        score += 10
+
+    # === Urgency Bonus (0-15) ===
+
+    # Very high borrow rate
+    if borrow_rate and borrow_rate > 300:
+        score += 10
+
+    # Extreme short interest
+    if short_interest and short_interest > 40:
+        score += 5
+
+    return round(min(score, 100), 1)
+
+
+# v1 호환용 (deprecated)
+def calculate_squeeze_score(borrow_rate, short_interest, days_to_cover):
+    """Legacy v1 score - use calculate_squeeze_score_v2 instead"""
+    return calculate_squeeze_score_v2(borrow_rate, short_interest, days_to_cover)
 
 
 # ============================================================
@@ -588,20 +807,23 @@ def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers, squee
             VALUES (%s, %s)
         """, (ticker, json.dumps(info)))
 
-    # 숏스퀴즈 데이터 저장
+    # 숏스퀴즈 데이터 저장 (v2)
     if squeeze_data:
         for ticker, data in squeeze_data.items():
             if data.get("squeeze_score") is not None:
                 cur.execute("""
-                    INSERT INTO squeeze_data (ticker, borrow_rate, short_interest, days_to_cover, short_volume, squeeze_score, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, 'chartexchange')
+                    INSERT INTO squeeze_data (ticker, borrow_rate, short_interest, days_to_cover, short_volume, squeeze_score, available_shares, float_shares, dilution_protected, source)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'v2_combined')
                 """, (
                     ticker,
                     data.get("borrow_rate"),
                     data.get("short_interest"),
                     data.get("days_to_cover"),
                     data.get("short_volume"),
-                    data.get("squeeze_score")
+                    data.get("squeeze_score"),
+                    data.get("available_shares"),
+                    data.get("float_shares"),
+                    data.get("dilution_protected", False),
                 ))
 
     # 브리핑 JSON 생성 및 저장
