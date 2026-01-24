@@ -5,6 +5,7 @@
 	import type { PageData } from './$types';
 	import RecommendationTabs from '$lib/components/RecommendationTabs.svelte';
 	import RegSHOBadge from '$lib/components/RegSHOBadge.svelte';
+	import Icon from '$lib/components/Icons.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -37,21 +38,34 @@
 	let portfolio = $state<PortfolioData | null>(null);
 	let portfolioLoading = $state(true);
 	let isLoggedIn = $state(false);
+	let isAdmin = $state(false);
+	let blogExpanded = $state(true);
 
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
 	let blog = $derived(data.blog);
+	let announcements = $derived(data.announcements);
 	let error = $derived(data.error);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
 		const token = localStorage.getItem('access_token');
+		const userStr = localStorage.getItem('user');
+
 		if (!token) {
 			portfolioLoading = false;
 			return;
 		}
 		isLoggedIn = true;
+
+		// Check admin status
+		if (userStr) {
+			try {
+				const user = JSON.parse(userStr);
+				isAdmin = user.is_admin === true;
+			} catch {}
+		}
 
 		try {
 			const response = await fetch(`${API_BASE}/api/portfolio/my`, {
@@ -63,6 +77,7 @@
 				localStorage.removeItem('access_token');
 				localStorage.removeItem('user');
 				isLoggedIn = false;
+				isAdmin = false;
 			}
 		} catch (e) {
 			console.error('Failed to load portfolio:', e);
@@ -123,13 +138,14 @@
 </script>
 
 <svelte:head>
-	<title>주식 대시보드</title>
+	<title>달러농장</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 </svelte:head>
 
 <div class="container">
 	<header>
-		<h1>📈 주식 대시보드</h1>
+		<h1><Icon name="chart" size={28} class="header-icon" /> 달러농장</h1>
+		<p class="tagline">미국 주식 포트폴리오 트래커</p>
 	</header>
 
 	{#if error}
@@ -142,7 +158,7 @@
 			<!-- Portfolio Section -->
 			{#if portfolioLoading}
 				<section class="card portfolio-card">
-					<h2>💰 내 포트폴리오</h2>
+					<h2><Icon name="wallet" size={20} /> 내 포트폴리오</h2>
 					<div class="loading-state">
 						<span class="spinner"></span>
 						<p>로딩 중...</p>
@@ -150,13 +166,13 @@
 				</section>
 			{:else if !isLoggedIn}
 				<section class="card portfolio-card login-prompt">
-					<h2>💰 내 포트폴리오</h2>
+					<h2><Icon name="wallet" size={20} /> 내 포트폴리오</h2>
 					<p>포트폴리오를 보려면 로그인하세요</p>
 					<a href="/login" class="login-btn">카카오로 로그인</a>
 				</section>
 			{:else if portfolio && portfolio.holdings}
 				<section class="card portfolio-card">
-					<h2>💰 내 포트폴리오</h2>
+					<h2><Icon name="wallet" size={20} /> 내 포트폴리오</h2>
 
 					<!-- Summary Cards -->
 					<div class="summary-grid">
@@ -253,10 +269,10 @@
 			<!-- RegSHO Section -->
 			{#if regsho}
 				<section class="card regsho-card">
-					<h2>📋 RegSHO 리스트</h2>
+					<h2><Icon name="shield" size={20} /> RegSHO 리스트</h2>
 					{#if regsho.holdings_on_list.length > 0}
 						<div class="alert-box">
-							<span class="alert-icon">🔥</span>
+							<span class="alert-icon"><Icon name="fire" size={18} /></span>
 							<span>보유 종목 등재: <strong>{regsho.holdings_on_list.join(', ')}</strong></span>
 						</div>
 					{/if}
@@ -281,47 +297,83 @@
 				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} />
 			{/if}
 
-			<!-- Blog Insights Section -->
-			{#if blog && blog.posts.length > 0}
-				<section class="card blog-card">
-					<h2>📝 블로거 인사이트</h2>
-					{#if blog.unread_count > 0}
-						<p class="blog-stats">새 글 {blog.unread_count}개 | 총 {blog.total_count}개</p>
-					{:else}
-						<p class="blog-stats">총 {blog.total_count}개</p>
-					{/if}
-
-					<div class="blog-list">
-						{#each blog.posts.slice(0, 5) as post}
-							<div class="blog-item" class:unread={!post.is_read}>
-								<div class="blog-content">
-									<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-title">
-										{post.title}
-									</a>
-									<div class="blog-meta">
-										{#if post.published_at}
-											<span class="blog-date">{formatDate(post.published_at)}</span>
-										{/if}
-									</div>
-									{#if post.tickers.length > 0 || post.keywords.length > 0}
-										<div class="blog-tags">
-											{#each post.tickers as ticker}
-												<span class="tag ticker">${ticker}</span>
-											{/each}
-											{#each post.keywords.slice(0, 3) as keyword}
-												<span class="tag keyword">{keyword}</span>
-											{/each}
-										</div>
-									{/if}
-								</div>
-								<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-link-btn">
-									원문
-								</a>
+			<!-- Announcements Section -->
+			{#if announcements && announcements.announcements.length > 0}
+				<section class="card announcements-card">
+					<h2><Icon name="megaphone" size={20} /> 공지사항</h2>
+					<div class="announcements-list">
+						{#each announcements.announcements as ann}
+							<div class="announcement-item" class:important={ann.is_important}>
+								{#if ann.is_important}
+									<span class="important-badge">중요</span>
+								{/if}
+								<div class="announcement-title">{ann.title}</div>
+								<div class="announcement-content">{ann.content}</div>
 							</div>
 						{/each}
 					</div>
-					{#if blog.total_count > 5}
-						<p class="show-more">최근 5개만 표시 (총 {blog.total_count}개)</p>
+				</section>
+			{/if}
+
+			<!-- Disclaimer Section -->
+			<section class="card disclaimer-card">
+				<h2><Icon name="shield" size={18} /> 안내사항</h2>
+				<ul class="disclaimer-list">
+					<li>달러농장은 <strong>자동매매 프로그램이 아닙니다</strong>. 포트폴리오 조회 및 정보 제공 서비스입니다.</li>
+					<li>추천 종목은 참고용이며, <strong>투자 판단과 책임은 본인</strong>에게 있습니다.</li>
+					<li>본 서비스 이용으로 발생한 손실에 대해 어떠한 책임도 지지 않습니다.</li>
+				</ul>
+			</section>
+
+			<!-- Blog Insights Section (Admin Only) -->
+			{#if isAdmin && blog && blog.posts.length > 0}
+				<section class="card blog-card">
+					<button class="blog-header" onclick={() => blogExpanded = !blogExpanded}>
+						<h2><Icon name="book" size={20} /> 블로거 인사이트</h2>
+						<span class="blog-toggle" class:expanded={blogExpanded}>
+							<Icon name="arrow-right" size={18} />
+						</span>
+					</button>
+
+					{#if blogExpanded}
+						{#if blog.unread_count > 0}
+							<p class="blog-stats">새 글 {blog.unread_count}개 | 총 {blog.total_count}개</p>
+						{:else}
+							<p class="blog-stats">총 {blog.total_count}개</p>
+						{/if}
+
+						<div class="blog-list">
+							{#each blog.posts.slice(0, 5) as post}
+								<div class="blog-item" class:unread={!post.is_read}>
+									<div class="blog-content">
+										<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-title">
+											{post.title}
+										</a>
+										<div class="blog-meta">
+											{#if post.published_at}
+												<span class="blog-date">{formatDate(post.published_at)}</span>
+											{/if}
+										</div>
+										{#if post.tickers.length > 0 || post.keywords.length > 0}
+											<div class="blog-tags">
+												{#each post.tickers as ticker}
+													<span class="tag ticker">${ticker}</span>
+												{/each}
+												{#each post.keywords.slice(0, 3) as keyword}
+													<span class="tag keyword">{keyword}</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+									<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-link-btn">
+										<Icon name="external-link" size={14} />
+									</a>
+								</div>
+							{/each}
+						</div>
+						{#if blog.total_count > 5}
+							<p class="show-more">최근 5개만 표시 (총 {blog.total_count}개)</p>
+						{/if}
 					{/if}
 				</section>
 			{/if}
@@ -352,10 +404,20 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
 		font-size: 1.5rem;
 		font-weight: 700;
 		margin: 0;
 		color: #f0f6fc;
+	}
+
+	.tagline {
+		font-size: 0.8rem;
+		color: #8b949e;
+		margin: 0.25rem 0 0;
 	}
 
 	.error {
@@ -873,5 +935,124 @@
 
 	.tax-value.positive {
 		color: #3fb950;
+	}
+
+	/* Announcements Section */
+	.announcements-card {
+		border-left: 3px solid #f0883e;
+	}
+
+	.announcements-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.announcement-item {
+		background: #21262d;
+		padding: 0.75rem;
+		border-radius: 8px;
+		position: relative;
+	}
+
+	.announcement-item.important {
+		border: 1px solid #f0883e;
+		background: rgba(240, 136, 62, 0.1);
+	}
+
+	.important-badge {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		font-size: 0.6rem;
+		padding: 0.15rem 0.4rem;
+		background: #f0883e;
+		color: #fff;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+
+	.announcement-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #f0f6fc;
+		margin-bottom: 0.375rem;
+		padding-right: 3rem;
+	}
+
+	.announcement-content {
+		font-size: 0.8rem;
+		color: #8b949e;
+		line-height: 1.4;
+	}
+
+	/* Blog Header Toggle */
+	.blog-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		margin-bottom: 0.5rem;
+	}
+
+	.blog-header h2 {
+		margin: 0;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.blog-toggle {
+		color: #8b949e;
+		transition: transform 0.2s;
+		display: flex;
+		align-items: center;
+	}
+
+	.blog-toggle.expanded {
+		transform: rotate(90deg);
+	}
+
+	.blog-header:hover .blog-toggle {
+		color: #f0f6fc;
+	}
+
+	/* Disclaimer Section */
+	.disclaimer-card {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-left: 3px solid #8b949e;
+	}
+
+	.disclaimer-card h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.9rem;
+		color: #8b949e;
+	}
+
+	.disclaimer-list {
+		margin: 0;
+		padding-left: 1.25rem;
+		font-size: 0.75rem;
+		color: #8b949e;
+		line-height: 1.6;
+	}
+
+	.disclaimer-list li {
+		margin-bottom: 0.375rem;
+	}
+
+	.disclaimer-list li:last-child {
+		margin-bottom: 0;
+	}
+
+	.disclaimer-list strong {
+		color: #f0f6fc;
 	}
 </style>

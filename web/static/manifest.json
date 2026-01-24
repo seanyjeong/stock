@@ -1,7 +1,7 @@
 {
-  "name": "Daily Stock Story",
-  "short_name": "StockStory",
-  "description": "Daily stock briefing and portfolio tracking",
+  "name": "달러농장",
+  "short_name": "달러농장",
+  "description": "미국 주식 포트폴리오 트래커",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0d1117",

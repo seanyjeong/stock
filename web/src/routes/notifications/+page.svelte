@@ -10,6 +10,7 @@
 	let error = $state('');
 
 	// Settings
+	let dataUpdateAlerts = $state(true);
 	let priceAlerts = $state(true);
 	let regshoAlerts = $state(true);
 	let blogAlerts = $state(true);
@@ -66,6 +67,7 @@
 
 			if (response.ok) {
 				const data = await response.json();
+				dataUpdateAlerts = data.data_update_alerts ?? true;
 				priceAlerts = data.price_alerts;
 				regshoAlerts = data.regsho_alerts;
 				blogAlerts = data.blog_alerts;
@@ -169,6 +171,7 @@
 				method: 'PUT',
 				headers: getAuthHeaders(),
 				body: JSON.stringify({
+					data_update_alerts: dataUpdateAlerts,
 					price_alerts: priceAlerts,
 					regsho_alerts: regshoAlerts,
 					blog_alerts: blogAlerts,
@@ -208,7 +211,7 @@
 </script>
 
 <svelte:head>
-	<title>알림 설정 - 주식 대시보드</title>
+	<title>알림 설정 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
@@ -267,6 +270,14 @@
 				<h2>알림 종류</h2>
 
 				<div class="toggle-list">
+					<label class="toggle-item">
+						<div class="toggle-info">
+							<span class="toggle-label">데이터 업데이트</span>
+							<span class="toggle-desc">주가 데이터 수집 완료 시 알림</span>
+						</div>
+						<input type="checkbox" bind:checked={dataUpdateAlerts} onchange={saveSettings} />
+					</label>
+
 					<label class="toggle-item">
 						<div class="toggle-info">
 							<span class="toggle-label">가격 알림</span>

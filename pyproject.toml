@@ -12,6 +12,8 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "pillow>=12.1.0",
+    "pywebpush>=2.2.0",
+    "cryptography>=46.0.3",
 ]
 
 [tool.uv]

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	interface User {
 		id: number;
@@ -42,11 +43,11 @@
 </script>
 
 <svelte:head>
-	<title>설정 - 주식 대시보드</title>
+	<title>설정 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
-	<h1>⚙️ 설정</h1>
+	<h1><Icon name="settings" size={24} /> 설정</h1>
 
 	<section class="card">
 		<h2>계정</h2>
@@ -56,7 +57,7 @@
 				{#if user.profile_image}
 					<img src={user.profile_image} alt="" class="avatar" />
 				{:else}
-					<div class="avatar placeholder">👤</div>
+					<div class="avatar placeholder"><Icon name="user" size={24} /></div>
 				{/if}
 				<div class="user-details">
 					<div class="user-name">{user.nickname}</div>
@@ -76,7 +77,7 @@
 			<div class="actions">
 				{#if user.is_admin}
 					<a href="/admin" class="btn admin">
-						👤 사용자 관리
+						<Icon name="user" size={16} /> 사용자 관리
 					</a>
 				{/if}
 				<button class="btn logout" onclick={handleLogout}>
@@ -108,7 +109,11 @@
 			</div>
 			<div class="info-item">
 				<span class="info-label">개발자</span>
-				<span class="info-value">Sean</span>
+				<span class="info-value">정으뜸</span>
+			</div>
+			<div class="info-item">
+				<span class="info-label">이메일</span>
+				<span class="info-value">sean8320@gmail.com</span>
 			</div>
 		</div>
 	</section>
@@ -122,6 +127,9 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.5rem;
 		margin-bottom: 1rem;
 	}

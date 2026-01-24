@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	let isLoading = $state(false);
 	let error = $state('');
@@ -80,13 +81,15 @@
 </script>
 
 <svelte:head>
-	<title>로그인 - 주식 대시보드</title>
+	<title>로그인 - 달러농장</title>
 </svelte:head>
 
 <div class="login-container">
 	<div class="login-card">
-		<div class="logo">📈</div>
-		<h1>주식 대시보드</h1>
+		<div class="logo">
+			<Icon name="chart" size={48} />
+		</div>
+		<h1>달러농장</h1>
 		<p class="subtitle">카카오 로그인으로 시작하세요</p>
 
 		{#if error}
@@ -136,8 +139,15 @@
 	}
 
 	.logo {
-		font-size: 3rem;
-		margin-bottom: 1rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 80px;
+		height: 80px;
+		margin: 0 auto 1rem;
+		background: linear-gradient(135deg, #238636 0%, #3fb950 100%);
+		border-radius: 20px;
+		color: #fff;
 	}
 
 	h1 {

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	interface Trade {
 		id: number;
@@ -152,12 +153,12 @@
 </script>
 
 <svelte:head>
-	<title>매매 이력 - 주식 대시보드</title>
+	<title>매매 이력 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
 	<div class="header">
-		<h1>📋 매매 이력</h1>
+		<h1><Icon name="list" size={24} /> 매매 이력</h1>
 		<button class="btn-add" onclick={() => showAddForm = !showAddForm}>
 			{showAddForm ? '취소' : '+ 기록'}
 		</button>
@@ -256,6 +257,9 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.5rem;
 		margin: 0;
 	}

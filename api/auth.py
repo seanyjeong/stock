@@ -279,6 +279,7 @@ async def kakao_callback(request: KakaoCallbackRequest):
             "email": user["email"],
             "profile_image": user["profile_image"],
             "is_approved": user["is_approved"],
+            "is_admin": user["is_admin"],
         }
     }
 

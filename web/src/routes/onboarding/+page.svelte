@@ -1,32 +1,33 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	let currentStep = $state(0);
 
 	const steps = [
 		{
-			icon: '👋',
-			title: '환영합니다!',
-			description: '주식 대시보드에 오신 것을 환영합니다.\n포트폴리오와 추천 종목을 한눈에 확인하세요.',
+			icon: 'home',
+			title: '달러농장에 오신 것을 환영합니다!',
+			description: '미국 주식 포트폴리오를 한눈에 확인하고\n추천 종목과 블로거 인사이트를 받아보세요.',
 		},
 		{
-			icon: '💰',
+			icon: 'wallet',
 			title: '포트폴리오',
 			description: '보유 종목의 현재가와 수익률을\n실시간으로 확인할 수 있습니다.',
 		},
 		{
-			icon: '📊',
+			icon: 'chart',
 			title: '추천 종목',
 			description: '단타, 스윙, 장기 투자 추천 종목을\n스캐너가 자동으로 분석합니다.',
 		},
 		{
-			icon: '📋',
+			icon: 'shield',
 			title: 'RegSHO 리스트',
 			description: 'NASDAQ RegSHO Threshold List를\n매일 자동으로 업데이트합니다.',
 		},
 		{
-			icon: '📝',
+			icon: 'book',
 			title: '블로거 인사이트',
 			description: '유명 블로거의 종목 분석 글을\n티커와 키워드로 정리해 보여드립니다.',
 		},
@@ -59,14 +60,16 @@
 </script>
 
 <svelte:head>
-	<title>시작하기 - 주식 대시보드</title>
+	<title>시작하기 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
 	<button class="skip-btn" onclick={skip}>건너뛰기</button>
 
 	<div class="step-content">
-		<div class="icon">{steps[currentStep].icon}</div>
+		<div class="icon">
+			<Icon name={steps[currentStep].icon} size={48} />
+		</div>
 		<h1>{steps[currentStep].title}</h1>
 		<p class="description">{steps[currentStep].description}</p>
 	</div>
@@ -128,8 +131,15 @@
 	}
 
 	.icon {
-		font-size: 4rem;
-		margin-bottom: 1.5rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 100px;
+		height: 100px;
+		margin: 0 auto 1.5rem;
+		background: linear-gradient(135deg, #238636 0%, #3fb950 100%);
+		border-radius: 24px;
+		color: #fff;
 	}
 
 	h1 {

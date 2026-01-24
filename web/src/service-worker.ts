@@ -121,7 +121,7 @@ self.addEventListener('push', (event) => {
 	if (!event.data) return;
 
 	const data = event.data.json();
-	const title = data.title || '주식 대시보드';
+	const title = data.title || '달러농장';
 	const options: NotificationOptions = {
 		body: data.body || '',
 		icon: '/icon-192.png',

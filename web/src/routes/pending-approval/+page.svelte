@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	let user = $state<{ nickname: string } | null>(null);
 
@@ -48,12 +49,14 @@
 </script>
 
 <svelte:head>
-	<title>승인 대기 - 주식 대시보드</title>
+	<title>승인 대기 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
 	<div class="card">
-		<div class="icon">⏳</div>
+		<div class="icon">
+			<Icon name="clock" size={48} />
+		</div>
 		<h1>승인 대기 중</h1>
 		
 		{#if user}
@@ -97,8 +100,15 @@
 	}
 
 	.icon {
-		font-size: 3rem;
-		margin-bottom: 1rem;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 80px;
+		height: 80px;
+		margin: 0 auto 1rem;
+		background: linear-gradient(135deg, #f0883e 0%, #f8b878 100%);
+		border-radius: 20px;
+		color: #fff;
 	}
 
 	h1 {

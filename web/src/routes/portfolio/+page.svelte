@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	interface Holding {
 		id: number;
@@ -222,12 +223,12 @@
 </script>
 
 <svelte:head>
-	<title>포트폴리오 - 주식 대시보드</title>
+	<title>포트폴리오 - 달러농장</title>
 </svelte:head>
 
 <div class="container">
 	<div class="header">
-		<h1>💰 포트폴리오</h1>
+		<h1><Icon name="wallet" size={24} /> 포트폴리오</h1>
 		<button class="btn-buy" onclick={() => openBuyForm()}>
 			+ 매수
 		</button>
@@ -239,7 +240,13 @@
 
 	{#if tradeMode}
 		<div class="trade-form card">
-			<h3>{tradeMode === 'buy' ? '📈 매수' : '📉 매도'}</h3>
+			<h3>
+				{#if tradeMode === 'buy'}
+					<Icon name="trending-up" size={20} /> 매수
+				{:else}
+					<Icon name="trending-down" size={20} /> 매도
+				{/if}
+			</h3>
 
 			{#if tradeMode === 'buy' && !selectedHolding}
 				<!-- 새 종목 매수: 검색 필요 -->
@@ -389,6 +396,9 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.5rem;
 		margin: 0;
 	}

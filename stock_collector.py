@@ -589,6 +589,15 @@ async def main():
     print(f"  - 블로거 언급 티커: {len(blogger_tickers)}개")
     print("=" * 60)
 
+    # 푸시 알림 발송
+    print("\n🔔 푸시 알림 발송...")
+    try:
+        from api.notifications import send_data_update_notification
+        result = send_data_update_notification()
+        print(f"  - 발송: {result.get('sent', 0)}건, 만료 삭제: {result.get('expired', 0)}건")
+    except Exception as e:
+        print(f"  - 알림 발송 실패: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

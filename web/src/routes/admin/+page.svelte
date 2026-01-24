@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	interface User {
 		id: number;
@@ -154,7 +155,7 @@
 </svelte:head>
 
 <div class="container">
-	<h1>👤 사용자 관리</h1>
+	<h1><Icon name="user" size={24} /> 사용자 관리</h1>
 
 	{#if error}
 		<div class="error-box">{error}</div>
@@ -185,7 +186,7 @@
 						{#if user.profile_image}
 							<img src={user.profile_image} alt="" class="avatar" />
 						{:else}
-							<div class="avatar placeholder">👤</div>
+							<div class="avatar placeholder"><Icon name="user" size={20} /></div>
 						{/if}
 						<div class="user-details">
 							<div class="user-name">
@@ -251,6 +252,9 @@
 	}
 
 	h1 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.5rem;
 		margin-bottom: 1rem;
 	}

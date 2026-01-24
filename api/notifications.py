@@ -27,6 +27,7 @@ class PushSubscription(BaseModel):
 
 
 class NotificationSettings(BaseModel):
+    data_update_alerts: bool = True
     price_alerts: bool = True
     regsho_alerts: bool = True
     blog_alerts: bool = True
@@ -63,12 +64,19 @@ def ensure_notifications_table():
             CREATE TABLE IF NOT EXISTS notification_settings (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                data_update_alerts BOOLEAN DEFAULT TRUE,
                 price_alerts BOOLEAN DEFAULT TRUE,
                 regsho_alerts BOOLEAN DEFAULT TRUE,
                 blog_alerts BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id)
             )
+        """)
+
+        # Add data_update_alerts column if not exists
+        cur.execute("""
+            ALTER TABLE notification_settings
+            ADD COLUMN IF NOT EXISTS data_update_alerts BOOLEAN DEFAULT TRUE
         """)
 
         conn.commit()
@@ -157,7 +165,7 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
 
     try:
         cur.execute("""
-            SELECT price_alerts, regsho_alerts, blog_alerts
+            SELECT data_update_alerts, price_alerts, regsho_alerts, blog_alerts
             FROM notification_settings
             WHERE user_id = %s
         """, (user["id"],))
@@ -167,6 +175,7 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
         if not result:
             # 기본 설정 반환
             return {
+                "data_update_alerts": True,
                 "price_alerts": True,
                 "regsho_alerts": True,
                 "blog_alerts": True
@@ -187,15 +196,16 @@ async def update_notification_settings(settings: NotificationSettings, user: dic
 
     try:
         cur.execute("""
-            INSERT INTO notification_settings (user_id, price_alerts, regsho_alerts, blog_alerts)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO notification_settings (user_id, data_update_alerts, price_alerts, regsho_alerts, blog_alerts)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
+                data_update_alerts = EXCLUDED.data_update_alerts,
                 price_alerts = EXCLUDED.price_alerts,
                 regsho_alerts = EXCLUDED.regsho_alerts,
                 blog_alerts = EXCLUDED.blog_alerts,
                 updated_at = CURRENT_TIMESTAMP
-            RETURNING price_alerts, regsho_alerts, blog_alerts
-        """, (user["id"], settings.price_alerts, settings.regsho_alerts, settings.blog_alerts))
+            RETURNING data_update_alerts, price_alerts, regsho_alerts, blog_alerts
+        """, (user["id"], settings.data_update_alerts, settings.price_alerts, settings.regsho_alerts, settings.blog_alerts))
 
         result = cur.fetchone()
         conn.commit()
@@ -237,3 +247,97 @@ async def get_subscriptions(user: dict = Depends(get_current_user)):
     finally:
         cur.close()
         conn.close()
+
+
+def send_push_notification(subscription: dict, title: str, body: str, url: str = "/"):
+    """단일 구독에 푸시 알림 발송"""
+    from pywebpush import webpush, WebPushException
+
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        return False
+
+    try:
+        webpush(
+            subscription_info={
+                "endpoint": subscription["endpoint"],
+                "keys": {
+                    "p256dh": subscription["p256dh"],
+                    "auth": subscription["auth"]
+                }
+            },
+            data=json.dumps({
+                "title": title,
+                "body": body,
+                "url": url,
+                "icon": "/icon-192.png"
+            }),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_EMAIL}
+        )
+        return True
+    except WebPushException as e:
+        print(f"Push failed: {e}")
+        # 410 Gone = subscription expired, should delete
+        if e.response and e.response.status_code == 410:
+            return "expired"
+        return False
+
+
+def send_data_update_notification():
+    """데이터 업데이트 알림 발송 (cron에서 호출)"""
+    ensure_notifications_table()
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        # data_update_alerts가 켜진 사용자의 구독 정보 조회
+        cur.execute("""
+            SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+            FROM push_subscriptions ps
+            JOIN notification_settings ns ON ps.user_id = ns.user_id
+            WHERE ns.data_update_alerts = TRUE
+        """)
+        subscriptions = cur.fetchall()
+
+        # 설정이 없는 사용자도 기본값(TRUE)으로 알림 발송
+        cur.execute("""
+            SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+            FROM push_subscriptions ps
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notification_settings ns WHERE ns.user_id = ps.user_id
+            )
+        """)
+        subscriptions.extend(cur.fetchall())
+
+        sent = 0
+        expired = []
+
+        for sub in subscriptions:
+            result = send_push_notification(
+                sub,
+                "달러농장",
+                "주가 데이터가 업데이트되었습니다!",
+                "/"
+            )
+            if result is True:
+                sent += 1
+            elif result == "expired":
+                expired.append(sub["id"])
+
+        # 만료된 구독 삭제
+        if expired:
+            cur.execute("DELETE FROM push_subscriptions WHERE id = ANY(%s)", (expired,))
+            conn.commit()
+
+        return {"sent": sent, "expired": len(expired)}
+    finally:
+        cur.close()
+        conn.close()
+
+
+@router.post("/send-data-update")
+async def trigger_data_update_notification():
+    """데이터 업데이트 알림 트리거 (내부용)"""
+    # TODO: 내부 호출 인증 추가 필요
+    result = send_data_update_notification()
+    return result

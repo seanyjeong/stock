@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { RecommendationsResponse, Recommendation } from '$lib/types';
+	import Icon from './Icons.svelte';
 
 	interface Props {
 		recommendations: RecommendationsResponse;
@@ -12,9 +13,9 @@
 	type TabType = 'day_trade' | 'swing' | 'longterm';
 
 	const tabs: { key: TabType; label: string; icon: string }[] = [
-		{ key: 'day_trade', label: '단타', icon: '⚡' },
-		{ key: 'swing', label: '스윙', icon: '📊' },
-		{ key: 'longterm', label: '장기', icon: '🎯' }
+		{ key: 'day_trade', label: '단타', icon: 'zap' },
+		{ key: 'swing', label: '스윙', icon: 'chart' },
+		{ key: 'longterm', label: '장기', icon: 'target' }
 	];
 
 	let activeTab = $state<TabType>('day_trade');
@@ -43,7 +44,7 @@
 </script>
 
 <section class="card recommendations-card">
-	<h2>📈 추천 종목</h2>
+	<h2><Icon name="trending-up" size={20} /> 추천 종목</h2>
 
 	{#if hasAnyRecommendations()}
 		<div class="tabs">
@@ -53,7 +54,7 @@
 					class:active={activeTab === tab.key}
 					onclick={() => (activeTab = tab.key)}
 				>
-					<span class="tab-icon">{tab.icon}</span>
+					<span class="tab-icon"><Icon name={tab.icon} size={16} /></span>
 					<span class="tab-label">{tab.label}</span>
 					{#if getTabCount(tab.key) > 0}
 						<span class="tab-count">{getTabCount(tab.key)}</span>
@@ -179,6 +180,9 @@
 	}
 
 	h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
 		font-size: 1.1rem;
 		font-weight: 600;
 		margin: 0 0 0.75rem;

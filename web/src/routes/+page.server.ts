@@ -6,6 +6,17 @@ import type {
 	BlogResponse
 } from '$lib/types';
 
+interface AnnouncementsResponse {
+	announcements: Array<{
+		id: number;
+		title: string;
+		content: string;
+		is_important: boolean;
+		created_at: string | null;
+	}>;
+	count: number;
+}
+
 const API_BASE = env.API_URL || 'http://localhost:8000';
 
 async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Promise<T | null> {
@@ -24,18 +35,20 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	// Portfolio is loaded client-side with auth token
-	const [regsho, recommendations, blog] = await Promise.all([
+	const [regsho, recommendations, blog, announcements] = await Promise.all([
 		fetchApi<RegSHOResponse>('/api/regsho', fetch),
 		fetchApi<RecommendationsResponse>('/api/recommendations', fetch),
-		fetchApi<BlogResponse>('/api/blog', fetch)
+		fetchApi<BlogResponse>('/api/blog', fetch),
+		fetchApi<AnnouncementsResponse>('/api/announcements/', fetch)
 	]);
 
-	const hasData = regsho || recommendations || blog;
+	const hasData = regsho || recommendations || blog || announcements;
 
 	return {
 		regsho,
 		recommendations,
 		blog,
+		announcements,
 		error: hasData ? null : 'Failed to load data from API'
 	};
 };
