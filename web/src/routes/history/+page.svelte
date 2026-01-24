@@ -19,15 +19,6 @@
 	let isLoading = $state(true);
 	let error = $state('');
 
-	// Add form
-	let showAddForm = $state(false);
-	let ticker = $state('');
-	let tradeType = $state<'buy' | 'sell'>('buy');
-	let shares = $state('');
-	let price = $state('');
-	let note = $state('');
-	let isSubmitting = $state(false);
-
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
@@ -70,46 +61,6 @@
 			error = e instanceof Error ? e.message : '오류가 발생했습니다';
 		} finally {
 			isLoading = false;
-		}
-	}
-
-	async function addTrade() {
-		if (!ticker || !shares || !price) {
-			alert('모든 필드를 입력해주세요');
-			return;
-		}
-
-		isSubmitting = true;
-		try {
-			const response = await fetch(`${API_BASE}/api/trades/`, {
-				method: 'POST',
-				headers: getAuthHeaders(),
-				body: JSON.stringify({
-					ticker: ticker.toUpperCase(),
-					trade_type: tradeType,
-					shares: parseFloat(shares),
-					price: parseFloat(price),
-					note: note || null,
-				}),
-			});
-
-			if (!response.ok) {
-				const data = await response.json();
-				throw new Error(data.detail || '기록 추가에 실패했습니다');
-			}
-
-			showAddForm = false;
-			ticker = '';
-			tradeType = 'buy';
-			shares = '';
-			price = '';
-			note = '';
-
-			await loadTrades();
-		} catch (e) {
-			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
-		} finally {
-			isSubmitting = false;
 		}
 	}
 
@@ -159,49 +110,12 @@
 <div class="container">
 	<div class="header">
 		<h1><Icon name="list" size={24} /> 매매 이력</h1>
-		<button class="btn-add" onclick={() => showAddForm = !showAddForm}>
-			{showAddForm ? '취소' : '+ 기록'}
-		</button>
 	</div>
+
+	<p class="info-text">포트폴리오에서 매수/매도 시 자동 기록됩니다</p>
 
 	{#if error}
 		<div class="error-box">{error}</div>
-	{/if}
-
-	{#if showAddForm}
-		<div class="add-form card">
-			<h3>매매 기록 추가</h3>
-			<div class="form-row">
-				<div class="form-group">
-					<label>종목</label>
-					<input type="text" placeholder="AAPL" bind:value={ticker} />
-				</div>
-				<div class="form-group">
-					<label>유형</label>
-					<select bind:value={tradeType}>
-						<option value="buy">매수</option>
-						<option value="sell">매도</option>
-					</select>
-				</div>
-			</div>
-			<div class="form-row">
-				<div class="form-group">
-					<label>수량</label>
-					<input type="number" step="0.0001" placeholder="0" bind:value={shares} />
-				</div>
-				<div class="form-group">
-					<label>가격 ($)</label>
-					<input type="number" step="0.01" placeholder="0.00" bind:value={price} />
-				</div>
-			</div>
-			<div class="form-group">
-				<label>메모 (선택)</label>
-				<input type="text" placeholder="손절/익절 이유 등" bind:value={note} />
-			</div>
-			<button class="btn-submit" onclick={addTrade} disabled={isSubmitting}>
-				{isSubmitting ? '추가 중...' : '기록 추가'}
-			</button>
-		</div>
 	{/if}
 
 	{#if isLoading}
@@ -227,16 +141,16 @@
 						{#if trade.note}
 							<div class="trade-note">{trade.note}</div>
 						{/if}
-						<button class="btn-delete" onclick={() => deleteTrade(trade)}>삭제</button>
+						<div class="trade-actions">
+							<button class="btn-delete" onclick={() => deleteTrade(trade)}>삭제</button>
+						</div>
 					</div>
 				{/each}
 			</div>
 		{:else}
 			<div class="empty card">
 				<p>매매 기록이 없습니다</p>
-				<button class="btn-add-first" onclick={() => showAddForm = true}>
-					+ 첫 기록 추가하기
-				</button>
+				<p class="empty-sub">포트폴리오에서 매수/매도 시 자동 기록됩니다</p>
 			</div>
 		{/if}
 	{/if}
@@ -250,10 +164,7 @@
 	}
 
 	.header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
 	h1 {
@@ -264,14 +175,10 @@
 		margin: 0;
 	}
 
-	.btn-add {
-		padding: 0.5rem 1rem;
-		background: #238636;
-		border: none;
-		border-radius: 8px;
-		color: white;
-		font-weight: 600;
-		cursor: pointer;
+	.info-text {
+		font-size: 0.8rem;
+		color: #8b949e;
+		margin: 0 0 1rem;
 	}
 
 	.card {
@@ -297,61 +204,9 @@
 		color: #8b949e;
 	}
 
-	.add-form h3 {
-		margin: 0 0 1rem;
-		font-size: 1rem;
-	}
-
-	.form-group {
-		margin-bottom: 0.75rem;
-	}
-
-	.form-group label {
-		display: block;
-		font-size: 0.75rem;
-		color: #8b949e;
-		margin-bottom: 0.25rem;
-	}
-
-	.form-group input,
-	.form-group select {
-		width: 100%;
-		padding: 0.75rem;
-		background: #0d1117;
-		border: 1px solid #30363d;
-		border-radius: 8px;
-		color: #f0f6fc;
-		font-size: 0.9rem;
-	}
-
-	.form-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-	}
-
-	.btn-submit {
-		width: 100%;
-		padding: 0.875rem;
-		background: #238636;
-		border: none;
-		border-radius: 8px;
-		color: white;
-		font-weight: 600;
-		cursor: pointer;
-	}
-
-	.btn-submit:disabled {
-		opacity: 0.5;
-	}
-
 	.trades {
 		display: flex;
 		flex-direction: column;
-	}
-
-	.trade-card {
-		position: relative;
 	}
 
 	.trade-card.buy {
@@ -417,15 +272,20 @@
 		color: #8b949e;
 	}
 
+	.trade-actions {
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #21262d;
+		display: flex;
+		justify-content: flex-end;
+	}
+
 	.btn-delete {
-		position: absolute;
-		top: 0.75rem;
-		right: 0.75rem;
-		padding: 0.25rem 0.5rem;
+		padding: 0.35rem 0.75rem;
 		background: transparent;
 		border: 1px solid #30363d;
-		border-radius: 4px;
-		font-size: 0.65rem;
+		border-radius: 6px;
+		font-size: 0.75rem;
 		color: #8b949e;
 		cursor: pointer;
 	}
@@ -442,16 +302,11 @@
 
 	.empty p {
 		color: #8b949e;
-		margin: 0 0 1rem;
+		margin: 0;
 	}
 
-	.btn-add-first {
-		padding: 0.75rem 1.5rem;
-		background: #238636;
-		border: none;
-		border-radius: 8px;
-		color: white;
-		font-weight: 600;
-		cursor: pointer;
+	.empty-sub {
+		font-size: 0.8rem;
+		margin-top: 0.5rem !important;
 	}
 </style>

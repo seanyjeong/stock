@@ -102,8 +102,11 @@
 	async function renderCharts() {
 		if (!chartData || !browser) return;
 
-		// Wait for next frame to ensure DOM is ready
-		await new Promise(resolve => requestAnimationFrame(resolve));
+		// Wait for DOM to be fully ready (double RAF for layout)
+		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+		// Wait a bit more for container to have proper dimensions
+		await new Promise(resolve => setTimeout(resolve, 100));
 
 		// Dynamically import lightweight-charts
 		const { createChart, ColorType, CrosshairMode } = await import('lightweight-charts');
@@ -138,9 +141,9 @@
 		if (mainChartContainer) {
 			mainChart = createChart(mainChartContainer, {
 				...chartOptions,
-				width: mainChartContainer.clientWidth,
-				height: 300,
+				autoSize: true,
 			});
+			mainChart.applyOptions({ height: 300 });
 
 			const candlestickSeries = mainChart.addCandlestickSeries({
 				upColor: '#3fb950',
@@ -177,9 +180,9 @@
 		if (rsiChartContainer && chartData.rsi.length > 0) {
 			rsiChart = createChart(rsiChartContainer, {
 				...chartOptions,
-				width: rsiChartContainer.clientWidth,
-				height: 120,
+				autoSize: true,
 			});
+			rsiChart.applyOptions({ height: 120 });
 
 			const rsiSeries = rsiChart.addLineSeries({
 				color: '#a371f7',
@@ -198,9 +201,9 @@
 		if (macdChartContainer && chartData.macd.length > 0) {
 			macdChart = createChart(macdChartContainer, {
 				...chartOptions,
-				width: macdChartContainer.clientWidth,
-				height: 120,
+				autoSize: true,
 			});
+			macdChart.applyOptions({ height: 120 });
 
 			// MACD line
 			const macdLineSeries = macdChart.addLineSeries({
@@ -493,6 +496,7 @@
 		border: 1px solid #30363d;
 		border-radius: 8px;
 		overflow: hidden;
+		width: 100%;
 		min-height: 300px;
 	}
 
