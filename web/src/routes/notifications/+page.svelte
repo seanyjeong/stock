@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icons.svelte';
 
 	let isSupported = $state(false);
 	let permission = $state<NotificationPermission>('default');
@@ -234,7 +235,7 @@
 
 			{#if permission === 'denied'}
 				<div class="status-box denied">
-					<span class="status-icon">Block</span>
+					<span class="status-icon"><Icon name="x" size={24} /></span>
 					<div>
 						<p>알림이 차단되었습니다</p>
 						<p class="sub">브라우저 설정에서 알림을 허용해주세요</p>
@@ -242,7 +243,7 @@
 				</div>
 			{:else if permission === 'granted' && isSubscribed}
 				<div class="status-box granted">
-					<span class="status-icon">Check</span>
+					<span class="status-icon"><Icon name="check" size={24} /></span>
 					<div>
 						<p>알림이 활성화되었습니다</p>
 						<p class="sub">가격 알림, RegSHO 등재 알림을 받을 수 있습니다</p>
@@ -253,7 +254,7 @@
 				</button>
 			{:else}
 				<div class="status-box default">
-					<span class="status-icon">Bell</span>
+					<span class="status-icon"><Icon name="bell" size={24} /></span>
 					<div>
 						<p>알림이 비활성화되었습니다</p>
 						<p class="sub">중요한 가격 변동을 놓치지 마세요</p>
@@ -313,7 +314,6 @@
 			<h2>알림 안내</h2>
 			<ul>
 				<li>푸시 알림은 앱이 꺼져 있어도 도착합니다</li>
-				<li>VAPID 키 설정이 필요합니다 (서버 관리자)</li>
 				<li>알림 데이터 사용량은 미미합니다</li>
 			</ul>
 		</section>
