@@ -419,3 +419,98 @@ async def get_recommendations():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/squeeze")
+async def get_squeeze_analysis():
+    """
+    Get short squeeze analysis data.
+    Returns squeeze scores with borrow rate, short interest, days to cover.
+    Combines with RegSHO days for comprehensive analysis.
+    """
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Get latest squeeze data for each ticker
+        cur.execute("""
+            SELECT DISTINCT ON (s.ticker)
+                s.ticker,
+                s.borrow_rate,
+                s.short_interest,
+                s.days_to_cover,
+                s.short_volume,
+                s.squeeze_score,
+                s.collected_at,
+                t.company_name,
+                r.days_on_list
+            FROM squeeze_data s
+            LEFT JOIN ticker_info t ON s.ticker = t.ticker
+            LEFT JOIN (
+                SELECT ticker, (CURRENT_DATE - first_seen_date) as days_on_list
+                FROM regsho_list
+                WHERE collected_date = (SELECT MAX(collected_date) FROM regsho_list)
+            ) r ON s.ticker = r.ticker
+            WHERE s.collected_at > NOW() - INTERVAL '2 days'
+            ORDER BY s.ticker, s.collected_at DESC
+        """)
+        squeeze_list = cur.fetchall()
+
+        # Get portfolio tickers
+        cur.execute(
+            "SELECT briefing_json->'portfolio' as portfolio "
+            "FROM stock_briefing ORDER BY created_at DESC LIMIT 1"
+        )
+        briefing = cur.fetchone()
+        portfolio_tickers = set()
+        if briefing and briefing["portfolio"]:
+            portfolio_tickers = {item["ticker"] for item in briefing["portfolio"]}
+
+        cur.close()
+        conn.close()
+
+        # Format results with combined score
+        result = []
+        for row in squeeze_list:
+            # Recalculate combined score with RegSHO days
+            squeeze_score = float(row["squeeze_score"]) if row["squeeze_score"] else 0
+            regsho_days = row["days_on_list"].days if row["days_on_list"] and hasattr(row["days_on_list"], 'days') else (int(row["days_on_list"]) if row["days_on_list"] else 0)
+
+            # Add RegSHO bonus (up to 15 points for 30+ days)
+            regsho_bonus = min(regsho_days / 2, 15) if regsho_days else 0
+            combined_score = round(squeeze_score + regsho_bonus, 1)
+
+            # Determine rating
+            if combined_score >= 60:
+                rating = "HOT"
+            elif combined_score >= 40:
+                rating = "WATCH"
+            else:
+                rating = "COLD"
+
+            result.append({
+                "ticker": row["ticker"],
+                "company_name": row["company_name"],
+                "borrow_rate": float(row["borrow_rate"]) if row["borrow_rate"] else None,
+                "short_interest": float(row["short_interest"]) if row["short_interest"] else None,
+                "days_to_cover": float(row["days_to_cover"]) if row["days_to_cover"] else None,
+                "regsho_days": regsho_days,
+                "squeeze_score": squeeze_score,
+                "combined_score": combined_score,
+                "rating": rating,
+                "is_holding": row["ticker"] in portfolio_tickers,
+            })
+
+        # Sort by combined score (highest first)
+        result.sort(key=lambda x: x["combined_score"], reverse=True)
+
+        return {
+            "squeeze_list": result,
+            "total_count": len(result),
+            "hot_count": sum(1 for r in result if r["rating"] == "HOT"),
+            "holdings_count": sum(1 for r in result if r["is_holding"]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

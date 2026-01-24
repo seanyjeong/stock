@@ -3,7 +3,8 @@ import type { PageServerLoad } from './$types';
 import type {
 	RegSHOResponse,
 	RecommendationsResponse,
-	BlogResponse
+	BlogResponse,
+	SqueezeResponse
 } from '$lib/types';
 
 interface AnnouncementsResponse {
@@ -35,20 +36,22 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 
 export const load: PageServerLoad = async ({ fetch }) => {
 	// Portfolio is loaded client-side with auth token
-	const [regsho, recommendations, blog, announcements] = await Promise.all([
+	const [regsho, recommendations, blog, announcements, squeeze] = await Promise.all([
 		fetchApi<RegSHOResponse>('/api/regsho', fetch),
 		fetchApi<RecommendationsResponse>('/api/recommendations', fetch),
 		fetchApi<BlogResponse>('/api/blog', fetch),
-		fetchApi<AnnouncementsResponse>('/api/announcements/', fetch)
+		fetchApi<AnnouncementsResponse>('/api/announcements/', fetch),
+		fetchApi<SqueezeResponse>('/api/squeeze', fetch)
 	]);
 
-	const hasData = regsho || recommendations || blog || announcements;
+	const hasData = regsho || recommendations || blog || announcements || squeeze;
 
 	return {
 		regsho,
 		recommendations,
 		blog,
 		announcements,
+		squeeze,
 		error: hasData ? null : 'Failed to load data from API'
 	};
 };

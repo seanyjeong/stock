@@ -115,8 +115,21 @@ def init_db():
             updated_at TIMESTAMP DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS squeeze_data (
+            id SERIAL PRIMARY KEY,
+            ticker VARCHAR(10) NOT NULL,
+            borrow_rate DECIMAL(10,2),
+            short_interest DECIMAL(10,2),
+            days_to_cover DECIMAL(8,2),
+            short_volume BIGINT,
+            squeeze_score DECIMAL(8,2),
+            source VARCHAR(50),
+            collected_at TIMESTAMP DEFAULT NOW()
+        );
+
         CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker, collected_at DESC);
         CREATE INDEX IF NOT EXISTS idx_blog_posts_new ON blog_posts(is_new, collected_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_squeeze_data_ticker ON squeeze_data(ticker, collected_at DESC);
     """)
 
     conn.commit()
@@ -271,6 +284,85 @@ async def collect_exchange_rate(page):
 
     print(f"  환율: $1 = ₩{rate:,.2f}")
     return rate
+
+
+# ============================================================
+# 숏스퀴즈 데이터 수집 (yfinance)
+# ============================================================
+
+async def collect_squeeze_data(page, tickers):
+    """yfinance에서 숏스퀴즈 관련 데이터 수집"""
+    import yfinance as yf
+
+    squeeze_data = {}
+
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            # Short Interest (유동주식 대비 공매도 비율, %)
+            short_pct = info.get("shortPercentOfFloat")
+            short_interest = round(short_pct * 100, 2) if short_pct else None
+
+            # Days to Cover (Short Ratio)
+            days_to_cover = info.get("shortRatio")
+
+            # Shares Short
+            short_volume = info.get("sharesShort")
+
+            # Float shares for context
+            float_shares = info.get("floatShares")
+
+            # 스퀴즈 점수 계산 (0-100)
+            # borrow_rate는 yfinance에서 제공하지 않음
+            squeeze_score = calculate_squeeze_score(None, short_interest, days_to_cover)
+
+            squeeze_data[ticker] = {
+                "borrow_rate": None,  # yfinance doesn't provide this
+                "short_interest": short_interest,
+                "days_to_cover": round(days_to_cover, 2) if days_to_cover else None,
+                "short_volume": short_volume,
+                "squeeze_score": squeeze_score,
+            }
+
+            print(f"  {ticker}: SI {short_interest}% | DTC {days_to_cover} | Score {squeeze_score}")
+
+        except Exception as e:
+            print(f"  ❌ {ticker}: {e}")
+            squeeze_data[ticker] = {
+                "borrow_rate": None,
+                "short_interest": None,
+                "days_to_cover": None,
+                "short_volume": None,
+                "squeeze_score": None,
+            }
+
+    return squeeze_data
+
+
+def calculate_squeeze_score(borrow_rate, short_interest, days_to_cover):
+    """
+    숏스퀴즈 확률 점수 계산 (0-100)
+    - Short Interest: 높을수록 좋음 (60% 가중치) - borrow rate 없어서 가중치 증가
+    - Days to Cover: 높을수록 좋음 (40% 가중치)
+    """
+    if not any([short_interest, days_to_cover]):
+        return None
+
+    score = 0
+
+    # Short Interest 점수 (0-60): 50%+ = 만점, 0% = 0점
+    if short_interest:
+        si_score = min(short_interest * 2, 100) * 0.6
+        score += si_score
+
+    # Days to Cover 점수 (0-40): 10일+ = 만점, 0일 = 0점
+    if days_to_cover:
+        dtc_score = min(days_to_cover * 10, 100) * 0.4
+        score += dtc_score
+
+    return round(score, 1)
 
 
 # ============================================================
@@ -430,7 +522,7 @@ async def collect_blogger_ticker_info(page, tickers):
 # DB 저장
 # ============================================================
 
-def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers):
+def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers, squeeze_data=None):
     """수집된 데이터를 DB에 저장"""
     conn = get_db()
     cur = conn.cursor()
@@ -442,13 +534,30 @@ def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers):
             VALUES (%s, %s, %s, %s, %s, 'benzinga')
         """, (ticker, data.get("regular"), data.get("afterhours"), data.get("premarket"), data.get("change_pct")))
 
-    # RegSHO 저장
-    cur.execute("DELETE FROM regSHO_list WHERE collected_date = CURRENT_DATE")
+    # RegSHO 저장 (연속 등재일 추적)
+    # 어제 등재된 티커와 first_seen_date 가져오기
+    cur.execute("""
+        SELECT ticker, first_seen_date FROM regsho_list
+        WHERE collected_date = (SELECT MAX(collected_date) FROM regsho_list WHERE collected_date < CURRENT_DATE)
+    """)
+    prev_tickers = {row[0]: row[1] for row in cur.fetchall()}
+
+    # 오늘 데이터 삭제 후 새로 저장
+    cur.execute("DELETE FROM regsho_list WHERE collected_date = CURRENT_DATE")
     for item in regSHO:
-        cur.execute("""
-            INSERT INTO regSHO_list (ticker, security_name, market_category)
-            VALUES (%s, %s, %s)
-        """, (item["ticker"], item["name"], item["market"]))
+        ticker = item["ticker"]
+        # 어제도 있었으면 first_seen_date 유지, 아니면 오늘 날짜
+        first_seen = prev_tickers.get(ticker, None)
+        if first_seen:
+            cur.execute("""
+                INSERT INTO regsho_list (ticker, security_name, market_category, first_seen_date)
+                VALUES (%s, %s, %s, %s)
+            """, (ticker, item["name"], item["market"], first_seen))
+        else:
+            cur.execute("""
+                INSERT INTO regsho_list (ticker, security_name, market_category, first_seen_date)
+                VALUES (%s, %s, %s, CURRENT_DATE)
+            """, (ticker, item["name"], item["market"]))
 
     # 환율 저장
     cur.execute("""
@@ -478,6 +587,22 @@ def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers):
             INSERT INTO blogger_tickers (ticker, ticker_info)
             VALUES (%s, %s)
         """, (ticker, json.dumps(info)))
+
+    # 숏스퀴즈 데이터 저장
+    if squeeze_data:
+        for ticker, data in squeeze_data.items():
+            if data.get("squeeze_score") is not None:
+                cur.execute("""
+                    INSERT INTO squeeze_data (ticker, borrow_rate, short_interest, days_to_cover, short_volume, squeeze_score, source)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'chartexchange')
+                """, (
+                    ticker,
+                    data.get("borrow_rate"),
+                    data.get("short_interest"),
+                    data.get("days_to_cover"),
+                    data.get("short_volume"),
+                    data.get("squeeze_score")
+                ))
 
     # 브리핑 JSON 생성 및 저장
     briefing = generate_briefing(prices, regSHO, exchange_rate, blog_posts, blogger_tickers)
@@ -622,11 +747,16 @@ async def main():
             print("\n🔍 블로거 언급 티커 정보 수집...")
             blogger_tickers = await collect_blogger_ticker_info(page, list(all_mentioned))
 
+        # 6. 숏스퀴즈 데이터 수집 (포트폴리오 + RegSHO 종목)
+        print("\n🔥 숏스퀴즈 데이터 수집...")
+        squeeze_tickers = list(set(tickers + [r["ticker"] for r in regSHO]))
+        squeeze_data = await collect_squeeze_data(page, squeeze_tickers)
+
         await browser.close()
 
     # DB 저장
     print("\n💾 DB 저장...")
-    save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers)
+    save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers, squeeze_data)
 
     # 티커 정보(회사명) 업데이트
     print("\n📛 티커 정보 업데이트...")
@@ -639,6 +769,7 @@ async def main():
     print(f"  - RegSHO: {len(regSHO)}개")
     print(f"  - 새 블로그 글: {len(blog_posts)}개")
     print(f"  - 블로거 언급 티커: {len(blogger_tickers)}개")
+    print(f"  - 숏스퀴즈 데이터: {len(squeeze_data)}개")
     print("=" * 60)
 
     # 푸시 알림 발송

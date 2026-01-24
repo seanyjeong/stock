@@ -1,42 +1,108 @@
 # 달러농장 핸드오프
 
-**작성일**: 2026-01-24
-**버전**: v1.4.0
+**작성일**: 2026-01-25
+**버전**: v1.6.0
 
 ---
 
-## 다음 세션에서 할 일
+## 바로 할 일 (다음 세션)
 
-### 1. 캔들스틱 차트 안 나오는 문제
-- API는 정상 (`/api/chart/BNAI` 데이터 잘 나옴)
-- 프론트엔드 문제 - 브라우저 콘솔 확인 필요
-- lightweight-charts import 또는 렌더링 타이밍 문제 가능성
+### 종합 스퀴즈 스코어 v2 구현
 
-### 2. 관리자 공지사항 작성 기능
-- `/admin` 페이지에 공지사항 CRUD 추가
-- API: `/api/announcements/` (이미 있음)
-- 현재는 DB에서 직접 입력해야 함
+**목표:** 블로거 스타일의 정확한 분석
 
-### 3. 가격 알림 기능
-- 관심종목 목표가/알림가 도달 시 푸시 알림
-- 백엔드 스케줄러 필요 (cron 또는 별도 워커)
-- `user_watchlist.target_price`, `alert_price` 활용
+**필요한 데이터:**
+| 데이터 | 소스 | 방법 |
+|--------|------|------|
+| Borrow Rate | Fintel 무료 부분 확인 | 스크래핑 |
+| 워런트 정보 | SEC EDGAR 8-K | API/스크래핑 |
+| 부채/재무상황 | SEC 10-Q | API |
+| 주식발행 제한 | SEC 공시 | 파싱 |
 
-### 4. 더 나은 Tooltip 컴포넌트
-- 현재 title 속성 사용 (기본 브라우저 툴팁)
-- 커스텀 Tooltip 컴포넌트로 교체하면 더 예쁨
+**BNAI 예시:**
+- 워런트 $15 있지만 행사 불가 (회사 부채 때문)
+- 주식 발행 제한 = 공매도자 청산 압박 증가
+- 현재 스코어 35.7 (DTC 낮아서) → 워런트/부채 반영하면 더 높아야 함
+
+### 구현 순서
+
+```bash
+1. SEC EDGAR API 연동
+   - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=BNAI&type=8-K
+   - 8-K (중요 공시) 수집
+   - 10-Q (분기 재무제표) 파싱
+
+2. Fintel 무료 데이터 확인
+   - https://fintel.io/ss/us/bnai
+   - Borrow Rate 스크래핑 가능한지 테스트
+
+3. 종합 스코어 계산 로직
+   score = (
+     short_interest * 0.25 +
+     days_to_cover * 0.15 +
+     regsho_days * 0.15 +
+     borrow_rate * 0.25 +
+     warrant_pressure * 0.20  # 워런트/부채 상황
+   )
+
+4. 프론트 UI 개선
+   - 각 지표별 상세 표시
+   - 왜 스퀴즈 확률이 높은지 설명
+```
 
 ---
 
-## 이번 세션 완료
+## 이번 세션 완료 (v1.6.0)
 
-1. **종목 상세 페이지** - `/stock/[ticker]` (캔들스틱 + RSI + MACD)
-2. **차트 API** - `/api/chart/{ticker}` OHLCV 시계열
-3. **관심종목 UI 개선** - 선택 시 현재가/지표 표시, 삭제 버튼 위치 수정
-4. **홈 세후 금액 표시** - 총평가금 옆에 (세후 ₩XXX)
-5. **RegSHO 더보기** - 접기/펼치기 버튼
-6. **BNAI 평단 수정** - 9.55로 DB 업데이트
-7. **git history 시크릿 제거** - force push 완료
+### 숏스퀴즈 분석 v1
+- `squeeze_data` 테이블 생성
+- yfinance에서 Short Interest, Days to Cover 수집
+- `/api/squeeze` API 엔드포인트
+- 포트폴리오 카드에 숏 지표 표시 (SI%, RegSHO일, 스퀴즈 점수)
+- RegSHO 연속등재일 추적 개선 (등재 빠지면 리셋)
+- RegSHO 설명 추가: "5일 연속 결제 실패 종목"
+
+### 파일 변경
+- `stock_collector.py` - collect_squeeze_data(), RegSHO first_seen_date 로직
+- `api/main.py` - /api/squeeze 엔드포인트
+- `web/src/routes/+page.svelte` - 숏스퀴즈 UI
+- `web/src/lib/types.ts` - SqueezeResponse 타입
+- `web/src/routes/+page.server.ts` - squeeze 데이터 fetch
+
+---
+
+## 테스트 명령어
+
+```bash
+# 수집기 실행
+cd ~/dailystockstory && uv run python stock_collector.py
+
+# squeeze 데이터 확인
+docker exec continuous-claude-postgres psql -U claude -d continuous_claude -c \
+  "SELECT * FROM squeeze_data ORDER BY squeeze_score DESC LIMIT 10;"
+
+# RegSHO 연속등재일 확인
+docker exec continuous-claude-postgres psql -U claude -d continuous_claude -c \
+  "SELECT ticker, first_seen_date, (CURRENT_DATE - first_seen_date) as days
+   FROM regsho_list WHERE collected_date = (SELECT MAX(collected_date) FROM regsho_list)
+   ORDER BY days DESC LIMIT 10;"
+
+# 빌드
+cd ~/dailystockstory/web && npm run build
+```
+
+---
+
+## 현재 DB squeeze_data
+
+| 티커 | SI | DTC | Score | 비고 |
+|------|-----|-----|-------|------|
+| HIMS | 36.5% | 5.4일 | 65.4 | 높음 |
+| GLSI | 24.3% | 2.4일 | 38.9 | |
+| BNAI | 29.2% | 0.16일 | 35.7 | DTC 낮아서 점수 낮음 |
+
+**BNAI 문제:** DTC 0.16일 = 거래량 많아서 점수 낮음
+→ 워런트/부채 상황 반영해야 정확한 스코어 나옴
 
 ---
 
@@ -50,63 +116,4 @@
 
 ---
 
-## API 엔드포인트
-
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `/api/chart/{ticker}` | 캔들스틱 OHLCV + RSI/MACD 시계열 |
-| `/api/indicators/{ticker}` | RSI, MACD 기술적 지표 요약 |
-| `/api/watchlist/` | 관심 종목 (현재가 포함) |
-| `/api/portfolio/my` | 내 포트폴리오 |
-| `/api/notifications/*` | 푸시 알림 |
-| `/api/announcements/` | 공지사항 |
-
----
-
-## 파일 구조
-
-```
-api/
-├── main.py
-├── chart.py         # 캔들스틱 API (신규)
-├── indicators.py    # RSI/MACD
-├── auth.py          # 카카오 로그인
-├── portfolio.py     # 포트폴리오 CRUD
-├── watchlist.py     # 관심 종목
-├── notifications.py # 푸시 알림
-└── announcements.py # 공지사항
-
-web/src/routes/
-├── +page.svelte         # 대시보드
-├── stock/[ticker]/      # 종목 상세 차트 (신규)
-├── portfolio/
-├── watchlist/
-├── admin/
-└── settings/
-```
-
----
-
-## 커밋 히스토리 (최신)
-
-```
-5ebdf0a feat: RegSHO 더보기 버튼 추가
-0ee72fe feat: 홈 총평가금에 세후 금액 표시
-94661d1 fix: 관심종목 UI 개선 + 차트 렌더링 수정
-396f6f7 security: 환경변수 제거 (보안)
-25e626f chore: v1.4.0 버전업
-ab9deda feat: 종목 상세 페이지 + 캔들스틱 차트
-```
-
----
-
-## 주의사항
-
-- **시크릿 키 교체 필요**: git history에 노출됨 (force push로 제거했지만 GitHub 캐시 90일 보관)
-  - KAKAO_CLIENT_SECRET
-  - JWT_SECRET
-  - VAPID_PRIVATE_KEY
-
----
-
-*Handoff: 2026-01-24 23:45*
+*Handoff: 2026-01-25*

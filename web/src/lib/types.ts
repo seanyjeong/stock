@@ -122,3 +122,23 @@ export interface BlogResponse {
 	total_count: number;
 	unread_count: number;
 }
+
+export interface SqueezeItem {
+	ticker: string;
+	company_name: string | null;
+	borrow_rate: number | null;
+	short_interest: number | null;
+	days_to_cover: number | null;
+	regsho_days: number;
+	squeeze_score: number;
+	combined_score: number;
+	rating: 'HOT' | 'WATCH' | 'COLD';
+	is_holding: boolean;
+}
+
+export interface SqueezeResponse {
+	squeeze_list: SqueezeItem[];
+	total_count: number;
+	hot_count: number;
+	holdings_count: number;
+}

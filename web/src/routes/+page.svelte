@@ -55,7 +55,14 @@
 	let recommendations = $derived(data.recommendations);
 	let blog = $derived(data.blog);
 	let announcements = $derived(data.announcements);
+	let squeeze = $derived(data.squeeze);
 	let error = $derived(data.error);
+
+	// Get squeeze data for a ticker
+	function getSqueezeForTicker(ticker: string) {
+		if (!squeeze?.squeeze_list) return null;
+		return squeeze.squeeze_list.find(s => s.ticker === ticker);
+	}
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -230,15 +237,33 @@
 					<!-- Stock Cards (Mobile-friendly) -->
 					<div class="stock-list">
 						{#each portfolio.holdings as item}
+							{@const squeezeInfo = getSqueezeForTicker(item.ticker)}
 							<div class="stock-card">
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
 										<a href="/stock/{item.ticker}" class="ticker-with-name">
 											<span class="stock-ticker">{item.ticker}</span>
-											{#if item.company_name}
+											{#if squeezeInfo}
+												<div class="squeeze-mini">
+													{#if squeezeInfo.borrow_rate}
+														<span class="sq-tag br" title="대차이자">{squeezeInfo.borrow_rate}%</span>
+													{/if}
+													{#if squeezeInfo.short_interest}
+														<span class="sq-tag si" title="공매도비율">SI {squeezeInfo.short_interest}%</span>
+													{/if}
+													{#if squeezeInfo.regsho_days > 0}
+														<span class="sq-tag reg" title="RegSHO 등재일">+{squeezeInfo.regsho_days}일</span>
+													{/if}
+												</div>
+											{:else if item.company_name}
 												<span class="company-name">{item.company_name}</span>
 											{/if}
 										</a>
+										{#if squeezeInfo}
+											<span class="squeeze-score {squeezeInfo.rating.toLowerCase()}" title="스퀴즈 점수">
+												{squeezeInfo.combined_score}
+											</span>
+										{/if}
 										{#if regsho}
 											<RegSHOBadge ticker={item.ticker} holdingsOnList={regsho.holdings_on_list} />
 										{/if}
@@ -284,7 +309,8 @@
 			<!-- RegSHO Section -->
 			{#if regsho}
 				<section class="card regsho-card">
-					<h2><Icon name="shield" size={20} /> RegSHO 리스트</h2>
+					<h2><Icon name="shield" size={20} /> RegSHO Threshold List</h2>
+					<p class="regsho-desc">5일 연속 결제 실패 종목 - 숏스퀴즈 가능성 높음</p>
 					{#if regsho.holdings_on_list.length > 0}
 						<div class="alert-box">
 							<span class="alert-icon"><Icon name="fire" size={18} /></span>
@@ -293,6 +319,11 @@
 					{/if}
 					<p class="regsho-stats">총 {regsho.total_count}개 종목 | {regsho.collected_date}</p>
 
+					<div class="regsho-header-row">
+						<span class="col-ticker">티커</span>
+						<span class="col-days">연속등재일</span>
+						<span class="col-name">종목명</span>
+					</div>
 					<div class="regsho-list">
 						{#each regsho.regsho_list.slice(0, regshoExpanded ? regsho.regsho_list.length : 10) as item}
 							<div class="regsho-item" class:holding={item.is_holding}>
@@ -649,6 +680,57 @@
 		white-space: nowrap;
 	}
 
+	/* Squeeze Mini Tags */
+	.squeeze-mini {
+		display: flex;
+		gap: 0.25rem;
+		flex-wrap: wrap;
+	}
+
+	.sq-tag {
+		font-size: 0.6rem;
+		padding: 0.1rem 0.3rem;
+		border-radius: 3px;
+		font-weight: 600;
+	}
+
+	.sq-tag.br {
+		background: rgba(248, 81, 73, 0.2);
+		color: #f85149;
+	}
+
+	.sq-tag.si {
+		background: rgba(136, 87, 229, 0.2);
+		color: #a371f7;
+	}
+
+	.sq-tag.reg {
+		background: rgba(240, 136, 62, 0.2);
+		color: #f0883e;
+	}
+
+	.squeeze-score {
+		font-size: 0.7rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 4px;
+		font-weight: 700;
+	}
+
+	.squeeze-score.hot {
+		background: rgba(248, 81, 73, 0.3);
+		color: #ff6b6b;
+	}
+
+	.squeeze-score.watch {
+		background: rgba(240, 136, 62, 0.3);
+		color: #f0883e;
+	}
+
+	.squeeze-score.cold {
+		background: rgba(139, 148, 158, 0.2);
+		color: #8b949e;
+	}
+
 	.market-badge {
 		font-size: 0.6rem;
 		padding: 0.15rem 0.4rem;
@@ -759,10 +841,45 @@
 		font-size: 1rem;
 	}
 
+	.regsho-desc {
+		font-size: 0.75rem;
+		color: #58a6ff;
+		margin: 0 0 0.5rem;
+		padding: 0.5rem;
+		background: rgba(88, 166, 255, 0.1);
+		border-radius: 6px;
+	}
+
 	.regsho-stats {
 		font-size: 0.75rem;
 		color: #8b949e;
-		margin: 0 0 0.75rem;
+		margin: 0 0 0.5rem;
+	}
+
+	.regsho-header-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.7rem;
+		color: #8b949e;
+		border-bottom: 1px solid #30363d;
+		margin-bottom: 0.25rem;
+	}
+
+	.col-ticker {
+		min-width: 50px;
+		font-weight: 600;
+	}
+
+	.col-days {
+		min-width: 60px;
+		font-weight: 600;
+	}
+
+	.col-name {
+		flex: 1;
+		font-weight: 600;
 	}
 
 	.regsho-list {
@@ -951,6 +1068,7 @@
 		border-radius: 10px;
 		padding: 0.75rem;
 		margin-top: 0.75rem;
+		margin-bottom: 1rem;
 	}
 
 	.tax-header {
