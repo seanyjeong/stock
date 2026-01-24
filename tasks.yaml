@@ -1,0 +1,111 @@
+# Daily Stock Story v1.1 Tasks
+
+tasks:
+  # Phase 5: P0 (병렬 가능)
+  - id: "5.1"
+    name: "블로거 인사이트 UI"
+    description: |
+      까꿍토끼 블로그 표시. API /api/blog 있음.
+      - types.ts에 BlogResponse 추가
+      - +page.server.ts에 fetch 추가
+      - +page.svelte에 섹션 추가 (티커/키워드 태그, 원문 링크)
+
+  - id: "5.2"
+    name: "세금 계산 표시"
+    description: |
+      포트폴리오 총합에 예상 세금 표시.
+      - 총 수익 × 22% (250만원 공제 후)
+      - summary-grid에 세금 카드 추가
+      - 세후 순수익 표시
+
+  - id: "5.3"
+    name: "하단 네비게이션"
+    description: |
+      모바일 탭 네비. [홈][포트폴리오][이력][설정]
+      - +layout.svelte에 BottomNav 추가
+      - position fixed bottom 0
+
+  # Phase 6: 카카오 로그인
+  - id: "6.1"
+    name: "카카오 로그인 API"
+    description: |
+      ~/mprojects/ 참고.
+      - POST /api/auth/kakao
+      - GET /api/auth/me
+      - POST /api/auth/logout
+      - users 테이블 생성
+      - 첫 가입자=admin, 이후=pending
+
+  - id: "6.2"
+    name: "사용자 승인 시스템"
+    depends_on: ["6.1"]
+    description: |
+      - GET /api/admin/users
+      - POST /api/admin/users/{id}/approve
+      - DELETE /api/admin/users/{id}
+      - /admin/users 페이지
+      - /pending 페이지
+      - JWT 미들웨어
+
+  - id: "6.3"
+    name: "온보딩 UI"
+    depends_on: ["6.2"]
+    description: |
+      /onboarding 3단계 위자드
+      - 1. 포트폴리오 설정
+      - 2. 알림 설정
+      - 3. 완료 (스킵 가능)
+      - POST /api/onboarding/complete, /skip
+
+  # Phase 7: 포트폴리오 CRUD
+  - id: "7.1"
+    name: "포트폴리오 CRUD API"
+    depends_on: ["6.1"]
+    description: |
+      - portfolio 테이블 생성
+      - POST/PUT/DELETE /api/portfolio
+      - portfolio.md 마이그레이션 (BNAI 464@$9.55, GLSI 67@$25.22)
+
+  - id: "7.2"
+    name: "포트폴리오 CRUD UI"
+    depends_on: ["7.1"]
+    description: |
+      /portfolio 페이지
+      - +버튼 추가 모달
+      - 스와이프 삭제
+      - 클릭 수정
+
+  # Phase 8: 매매 기록
+  - id: "8.1"
+    name: "매매 기록 + 손절/익절"
+    depends_on: ["7.1"]
+    description: |
+      - trade_history, price_alerts 테이블
+      - POST/GET /api/trades
+      - POST/GET /api/alerts
+      - /history 페이지
+
+  # Phase 9: P2
+  - id: "9.1"
+    name: "관심 종목"
+    depends_on: ["8.1"]
+    description: |
+      - watchlist 테이블
+      - GET/POST/DELETE /api/watchlist
+      - 추천에서 ⭐ 클릭 관심 추가
+
+  - id: "9.2"
+    name: "익절 계산기"
+    depends_on: ["8.1"]
+    description: |
+      - GET /api/calculator
+      - 목표가→수익/세금 계산
+      - 분할 매도 시뮬레이션
+
+  - id: "9.3"
+    name: "푸시 알림"
+    depends_on: ["8.1"]
+    description: |
+      - VAPID 키, notification_settings 테이블
+      - POST/DELETE /api/push/subscribe
+      - 정기 브리핑, 손절/익절, RegSHO 알림

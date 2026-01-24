@@ -1,7 +1,7 @@
 # Daily Stock Story - Handoff
 
 **작성일**: 2026-01-24
-**세션**: v1.0.0 배포 완료
+**세션**: v1.1 구현 시작
 
 ---
 
@@ -29,49 +29,36 @@
 
 ---
 
-## 다음 세션에서 할 일 (순서대로!)
+## 다음 세션에서 할 일
 
-### 0. P0 미구현 먼저! (빠르게)
+### 즉시 시작: 블로거 인사이트 UI (#1)
 ```
-1. 블로거 인사이트 UI 추가 (API 있음, 웹만)
-2. 세금 계산 표시
-3. 하단 네비게이션
+/ralph-loop:ralph-loop 블로거 인사이트 UI 추가 - API /api/blog 있음, +page.svelte에 섹션 추가, 티커/키워드 태그, 원문 링크
 ```
 
-### 1. 카카오 로그인 + 권한 시스템
-```
-참고: ~/mprojects/ 에 카카오 로그인 구현되어 있음
+**구현 내용:**
+- web/src/lib/types.ts에 BlogPost, BlogResponse 타입 추가
+- web/src/routes/+page.server.ts에 blog fetch 추가
+- web/src/routes/+page.svelte에 블로그 섹션 추가
+- 티커/키워드 태그 표시
+- 원문 링크 버튼
 
-권한 구조:
-- Sean (첫 로그인) = admin + user
-- 다른 사람 = user (승인 필요)
+### 다음 P0 태스크
+- #3: 세금 계산 표시 (포트폴리오에 22% 세금 계산 추가)
+- #8: 하단 네비게이션 ([홈][포트폴리오][이력][설정])
 
-로직:
-1. 카카오 로그인 → 사용자 생성
-2. 첫 번째 사용자 → 자동 admin 권한
-3. 이후 사용자 → pending 상태 (승인 대기)
-4. admin만 승인 페이지 접근 가능 (/admin/users)
-5. 승인되면 → 로그인 가능
+### P1 태스크 (카카오 로그인)
+- #7: 카카오 로그인 API (~/mprojects/ 참고)
+- #5: 사용자 승인 시스템
+- #12: 온보딩 UI
+- #4: 포트폴리오 CRUD API
+- #6: 포트폴리오 CRUD UI
 
-DB:
-users (
-  id, kakao_id, nickname, profile_image,
-  role: 'admin' | 'user',
-  status: 'active' | 'pending',
-  created_at
-)
-```
-
-### 2. 블로그 UI 추가
-- API `/api/blog` 이미 있음
-- 메인 페이지에 섹션 추가
-
-### 3. 포트폴리오 CRUD
-- 현재 하드코딩됨
-- DB 테이블: `portfolio`
-- API: POST/PUT/DELETE
-
-### 4. 매매 기록 + 손절/익절 설정
+### P2 태스크
+- #2: 매매 기록 + 손절/익절
+- #11: 관심 종목
+- #10: 익절 계산기
+- #9: 푸시 알림
 
 ---
 

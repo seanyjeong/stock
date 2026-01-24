@@ -1,5 +1,6 @@
 <script lang="ts">
 	import favicon from '$lib/assets/favicon.svg';
+	import BottomNav from '$lib/components/BottomNav.svelte';
 	import { onMount } from 'svelte';
 
 	let { children } = $props();
@@ -20,7 +21,11 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-{@render children()}
+<main>
+	{@render children()}
+</main>
+
+<BottomNav />
 
 <style>
 	:global(html, body) {
@@ -42,5 +47,9 @@
 
 	:global(a:hover) {
 		color: #79b8ff;
+	}
+
+	main {
+		padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
 	}
 </style>

@@ -11,6 +11,16 @@
 	let blog = $derived(data.blog);
 	let error = $derived(data.error);
 
+	// Tax calculation (22% capital gains tax, 2.5M KRW deduction)
+	let taxCalc = $derived.by(() => {
+		if (!portfolio || portfolio.total.gain_usd <= 0) return null;
+		const gainKrw = portfolio.total.gain_usd * portfolio.exchange_rate;
+		const taxableKrw = Math.max(0, gainKrw - 2500000);
+		const taxKrw = Math.round(taxableKrw * 0.22);
+		const netProfitKrw = gainKrw - taxKrw;
+		return { gainKrw, taxableKrw, taxKrw, netProfitKrw };
+	});
+
 	function formatCurrency(value: number, currency: 'USD' | 'KRW' = 'USD'): string {
 		if (currency === 'KRW') {
 			return new Intl.NumberFormat('ko-KR', {
@@ -87,6 +97,35 @@
 							<span class="summary-percent">{formatPercent(portfolio.total.gain_pct)}</span>
 						</div>
 					</div>
+
+					<!-- Tax Calculation -->
+					{#if taxCalc}
+						<div class="tax-section">
+							<div class="tax-header">예상 세금 (익절 시)</div>
+							<div class="tax-grid">
+								<div class="tax-item">
+									<span class="tax-label">총 수익</span>
+									<span class="tax-value">{formatCurrency(taxCalc.gainKrw, 'KRW')}</span>
+								</div>
+								<div class="tax-item">
+									<span class="tax-label">공제 (250만)</span>
+									<span class="tax-value">-{formatCurrency(Math.min(taxCalc.gainKrw, 2500000), 'KRW')}</span>
+								</div>
+								<div class="tax-item">
+									<span class="tax-label">과세 대상</span>
+									<span class="tax-value">{formatCurrency(taxCalc.taxableKrw, 'KRW')}</span>
+								</div>
+								<div class="tax-item highlight">
+									<span class="tax-label">세금 (22%)</span>
+									<span class="tax-value negative">{formatCurrency(taxCalc.taxKrw, 'KRW')}</span>
+								</div>
+								<div class="tax-item highlight">
+									<span class="tax-label">세후 순수익</span>
+									<span class="tax-value positive">{formatCurrency(taxCalc.netProfitKrw, 'KRW')}</span>
+								</div>
+							</div>
+						</div>
+					{/if}
 
 					<!-- Stock Cards (Mobile-friendly) -->
 					<div class="stock-list">
@@ -231,7 +270,6 @@
 		max-width: 500px;
 		margin: 0 auto;
 		padding: 1rem;
-		padding-bottom: 2rem;
 	}
 
 	header {
@@ -659,5 +697,59 @@
 	.blog-link-btn:hover {
 		background: #3d444d;
 		color: #f0f6fc;
+	}
+
+	/* Tax Section */
+	.tax-section {
+		background: #21262d;
+		border-radius: 10px;
+		padding: 0.75rem;
+		margin-top: 0.75rem;
+	}
+
+	.tax-header {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #8b949e;
+		margin-bottom: 0.5rem;
+	}
+
+	.tax-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+	}
+
+	.tax-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.375rem 0.5rem;
+		background: #0d1117;
+		border-radius: 6px;
+		font-size: 0.75rem;
+	}
+
+	.tax-item.highlight {
+		grid-column: span 2;
+		background: rgba(88, 166, 255, 0.1);
+		border: 1px solid #30363d;
+	}
+
+	.tax-label {
+		color: #8b949e;
+	}
+
+	.tax-value {
+		font-weight: 600;
+		color: #f0f6fc;
+	}
+
+	.tax-value.negative {
+		color: #f85149;
+	}
+
+	.tax-value.positive {
+		color: #3fb950;
 	}
 </style>
