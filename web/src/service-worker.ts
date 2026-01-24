@@ -115,3 +115,45 @@ async function networkFirst(request: Request): Promise<Response> {
 		);
 	}
 }
+
+// Push notification handler
+self.addEventListener('push', (event) => {
+	if (!event.data) return;
+
+	const data = event.data.json();
+	const title = data.title || '주식 대시보드';
+	const options: NotificationOptions = {
+		body: data.body || '',
+		icon: '/icon-192.png',
+		badge: '/icon-192.png',
+		tag: data.tag || 'default',
+		data: data.url || '/',
+		vibrate: [100, 50, 100],
+		actions: data.actions || []
+	};
+
+	event.waitUntil(
+		self.registration.showNotification(title, options)
+	);
+});
+
+// Notification click handler
+self.addEventListener('notificationclick', (event) => {
+	event.notification.close();
+
+	const url = event.notification.data || '/';
+
+	event.waitUntil(
+		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+			// Focus existing window if open
+			for (const client of clients) {
+				if (client.url.includes(self.location.origin) && 'focus' in client) {
+					client.navigate(url);
+					return client.focus();
+				}
+			}
+			// Open new window
+			return self.clients.openWindow(url);
+		})
+	);
+});

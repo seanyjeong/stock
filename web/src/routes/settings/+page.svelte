@@ -92,6 +92,14 @@
 	</section>
 
 	<section class="card">
+		<h2>알림</h2>
+		<a href="/notifications" class="menu-link">
+			<span>Push 알림 설정</span>
+			<span class="arrow">→</span>
+		</a>
+	</section>
+
+	<section class="card">
 		<h2>정보</h2>
 		<div class="info-list">
 			<div class="info-item">
@@ -271,5 +279,25 @@
 	.info-value {
 		color: #f0f6fc;
 		font-size: 0.85rem;
+	}
+
+	.menu-link {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.875rem;
+		background: #21262d;
+		border-radius: 8px;
+		color: #f0f6fc;
+		text-decoration: none;
+		transition: background 0.15s;
+	}
+
+	.menu-link:hover {
+		background: #30363d;
+	}
+
+	.menu-link .arrow {
+		color: #8b949e;
 	}
 </style>

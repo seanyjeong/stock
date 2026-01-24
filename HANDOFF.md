@@ -24,20 +24,31 @@
 8. 매매 기록 + 손절/익절
 9. 익절 계산기
 10. 관심 종목 (Watchlist) - 목표가/알림가 설정
+11. 푸시 알림 - Service Worker + Web Push API (VAPID 키 필요)
 
 ### ❌ 미구현
-- 푸시 알림 (FCM 설정 필요)
+- 실제 푸시 발송 (VAPID 키 생성 및 cron job 필요)
 
 ---
 
 ## 다음 세션에서 할 일
 
-### P1: 푸시 알림
+### P1: VAPID 키 생성 및 푸시 발송 구현
+```bash
+# VAPID 키 생성
+npx web-push generate-vapid-keys
+
+# .env에 추가
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_EMAIL=mailto:admin@example.com
 ```
-FCM 또는 Web Push 설정 필요
-- 가격 알림 (목표가/알림가 도달)
-- RegSHO 등재 알림
-- Service Worker 구현
+
+### P2: 푸시 트리거 cron job
+```
+- 목표가/알림가 도달 체크
+- RegSHO 등재/해제 감지
+- 블로그 새 글 알림
 ```
 
 ---
@@ -54,6 +65,7 @@ FCM 또는 Web Push 설정 필요
 | `/api/portfolio/*` | 포트폴리오 CRUD |
 | `/api/trades/*` | 매매 기록 |
 | `/api/watchlist/*` | 관심 종목 CRUD |
+| `/api/notifications/*` | 푸시 알림 설정/구독 |
 
 ---
 
@@ -66,7 +78,8 @@ FCM 또는 Web Push 설정 필요
 │   ├── auth.py          # 카카오 로그인 + 관리자
 │   ├── portfolio.py     # 포트폴리오 CRUD
 │   ├── trades.py        # 매매 기록
-│   └── watchlist.py     # 관심 종목
+│   ├── watchlist.py     # 관심 종목
+│   └── notifications.py # 푸시 알림
 ├── web/src/routes/
 │   ├── +page.svelte     # 대시보드 (세금 계산 포함)
 │   ├── login/           # 카카오 로그인
@@ -77,6 +90,7 @@ FCM 또는 Web Push 설정 필요
 │   ├── history/         # 매매 이력
 │   ├── watchlist/       # 관심 종목
 │   ├── calculator/      # 익절 계산기
+│   ├── notifications/   # 알림 설정
 │   └── settings/        # 설정
 ├── stock_collector.py   # 데이터 수집 (cron)
 └── read_briefing.py     # 브리핑 CLI
@@ -131,6 +145,8 @@ git push  # → Vercel 자동 배포
 - `user_holdings` - 사용자 포트폴리오
 - `trades` - 매매 기록
 - `user_watchlist` - 관심 종목
+- `push_subscriptions` - 푸시 구독
+- `notification_settings` - 알림 설정
 
 ---
 
