@@ -307,9 +307,9 @@ async def get_blog_posts():
 
         cur.execute(
             """
-            SELECT id, title, url, tickers, keywords, published_at, is_read, created_at
+            SELECT id, title, url, tickers, keywords, post_date, is_new, collected_at
             FROM blog_posts
-            ORDER BY published_at DESC
+            ORDER BY collected_at DESC
             LIMIT 20
             """
         )
@@ -326,8 +326,8 @@ async def get_blog_posts():
                 "url": post["url"],
                 "tickers": post["tickers"] if post["tickers"] else [],
                 "keywords": post["keywords"] if post["keywords"] else [],
-                "published_at": post["published_at"].isoformat() if post["published_at"] else None,
-                "is_read": post["is_read"],
+                "published_at": post["post_date"],
+                "is_read": not post["is_new"],
             })
 
         return {

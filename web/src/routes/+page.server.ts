@@ -1,7 +1,6 @@
 import { env } from '$env/dynamic/private';
 import type { PageServerLoad } from './$types';
 import type {
-	PortfolioResponse,
 	RegSHOResponse,
 	RecommendationsResponse,
 	BlogResponse
@@ -24,17 +23,16 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 }
 
 export const load: PageServerLoad = async ({ fetch }) => {
-	const [portfolio, regsho, recommendations, blog] = await Promise.all([
-		fetchApi<PortfolioResponse>('/api/portfolio', fetch),
+	// Portfolio is loaded client-side with auth token
+	const [regsho, recommendations, blog] = await Promise.all([
 		fetchApi<RegSHOResponse>('/api/regsho', fetch),
 		fetchApi<RecommendationsResponse>('/api/recommendations', fetch),
 		fetchApi<BlogResponse>('/api/blog', fetch)
 	]);
 
-	const hasData = portfolio || regsho || recommendations || blog;
+	const hasData = regsho || recommendations || blog;
 
 	return {
-		portfolio,
 		regsho,
 		recommendations,
 		blog,

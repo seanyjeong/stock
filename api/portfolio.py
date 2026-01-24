@@ -163,14 +163,16 @@ async def get_my_portfolio(user: dict = Depends(require_approved_user)):
         avg_cost = float(h["avg_cost"])
 
         # 현재가
+        regular_price = None
+        afterhours_price = None
+        premarket_price = None
+
         if ticker in prices:
             p = prices[ticker]
-            current_price = (
-                float(p["afterhours_price"]) if p["afterhours_price"]
-                else float(p["premarket_price"]) if p["premarket_price"]
-                else float(p["regular_price"]) if p["regular_price"]
-                else 0
-            )
+            regular_price = float(p["regular_price"]) if p["regular_price"] else None
+            afterhours_price = float(p["afterhours_price"]) if p["afterhours_price"] else None
+            premarket_price = float(p["premarket_price"]) if p["premarket_price"] else None
+            current_price = afterhours_price or premarket_price or regular_price or 0
         else:
             current_price = 0
 
@@ -188,6 +190,9 @@ async def get_my_portfolio(user: dict = Depends(require_approved_user)):
             "shares": shares,
             "avg_cost": avg_cost,
             "current_price": current_price,
+            "regular_price": regular_price,
+            "afterhours_price": afterhours_price,
+            "premarket_price": premarket_price,
             "value": round(value, 2),
             "gain": round(gain, 2),
             "gain_pct": round(gain_pct, 1),

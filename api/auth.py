@@ -73,7 +73,7 @@ def create_jwt_token(user_id: int, kakao_id: int, nickname: str) -> str:
     """JWT 토큰 생성"""
     expire = datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRE_DAYS)
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),  # JWT spec requires sub to be string
         "kakao_id": str(kakao_id),
         "nickname": nickname,
         "exp": expire,
@@ -103,7 +103,7 @@ async def get_current_user(
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM users WHERE id = %s", (payload["sub"],))
+    cur.execute("SELECT * FROM users WHERE id = %s", (int(payload["sub"]),))
     user = cur.fetchone()
     cur.close()
     conn.close()
@@ -125,7 +125,7 @@ async def require_user(
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM users WHERE id = %s", (payload["sub"],))
+    cur.execute("SELECT * FROM users WHERE id = %s", (int(payload["sub"]),))
     user = cur.fetchone()
     cur.close()
     conn.close()

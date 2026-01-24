@@ -1,15 +1,75 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import type { PageData } from './$types';
 	import RecommendationTabs from '$lib/components/RecommendationTabs.svelte';
 	import RegSHOBadge from '$lib/components/RegSHOBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
-	let portfolio = $derived(data.portfolio);
+	// Portfolio loaded client-side with auth
+	interface PortfolioItem {
+		id: number;
+		ticker: string;
+		shares: number;
+		avg_cost: number;
+		current_price: number;
+		regular_price?: number;
+		afterhours_price?: number;
+		premarket_price?: number;
+		value: number;
+		gain: number;
+		gain_pct: number;
+	}
+	interface PortfolioData {
+		holdings: PortfolioItem[];
+		total: {
+			value_usd: number;
+			value_krw: number;
+			cost_usd: number;
+			gain_usd: number;
+			gain_pct: number;
+		};
+		exchange_rate: number;
+	}
+
+	let portfolio = $state<PortfolioData | null>(null);
+	let portfolioLoading = $state(true);
+	let isLoggedIn = $state(false);
+
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
 	let blog = $derived(data.blog);
 	let error = $derived(data.error);
+
+	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
+
+	onMount(async () => {
+		const token = localStorage.getItem('access_token');
+		if (!token) {
+			portfolioLoading = false;
+			return;
+		}
+		isLoggedIn = true;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/portfolio/my`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (response.ok) {
+				portfolio = await response.json();
+			} else if (response.status === 401) {
+				localStorage.removeItem('access_token');
+				localStorage.removeItem('user');
+				isLoggedIn = false;
+			}
+		} catch (e) {
+			console.error('Failed to load portfolio:', e);
+		} finally {
+			portfolioLoading = false;
+		}
+	});
 
 	// Tax calculation (22% capital gains tax, 2.5M KRW deduction)
 	let taxCalc = $derived.by(() => {
@@ -80,7 +140,21 @@
 	{:else}
 		<div class="dashboard">
 			<!-- Portfolio Section -->
-			{#if portfolio}
+			{#if portfolioLoading}
+				<section class="card portfolio-card">
+					<h2>💰 내 포트폴리오</h2>
+					<div class="loading-state">
+						<span class="spinner"></span>
+						<p>로딩 중...</p>
+					</div>
+				</section>
+			{:else if !isLoggedIn}
+				<section class="card portfolio-card login-prompt">
+					<h2>💰 내 포트폴리오</h2>
+					<p>포트폴리오를 보려면 로그인하세요</p>
+					<a href="/login" class="login-btn">카카오로 로그인</a>
+				</section>
+			{:else if portfolio && portfolio.holdings}
 				<section class="card portfolio-card">
 					<h2>💰 내 포트폴리오</h2>
 
@@ -129,7 +203,7 @@
 
 					<!-- Stock Cards (Mobile-friendly) -->
 					<div class="stock-list">
-						{#each portfolio.portfolio as item}
+						{#each portfolio.holdings as item}
 							<div class="stock-card">
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
@@ -172,7 +246,6 @@
 
 					<div class="card-footer">
 						<span class="exchange-rate">환율: $1 = ₩{portfolio.exchange_rate.toLocaleString()}</span>
-						<span class="updated">업데이트: {formatDate(portfolio.briefing_updated_at)}</span>
 					</div>
 				</section>
 			{/if}
@@ -296,6 +369,55 @@
 	.error p {
 		margin: 0 0 1rem;
 		color: #f85149;
+	}
+
+	.loading-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 2rem;
+		color: #8b949e;
+	}
+
+	.loading-state .spinner {
+		width: 24px;
+		height: 24px;
+		border: 2px solid #30363d;
+		border-top-color: #58a6ff;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.login-prompt {
+		text-align: center;
+		padding: 1.5rem !important;
+	}
+
+	.login-prompt p {
+		color: #8b949e;
+		margin: 0.75rem 0 1rem;
+	}
+
+	.login-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		background: #FEE500;
+		color: #000;
+		text-decoration: none;
+		border-radius: 8px;
+		font-weight: 600;
+		transition: background 0.15s;
+	}
+
+	.login-btn:hover {
+		background: #F5DC00;
 	}
 
 	.error button {
