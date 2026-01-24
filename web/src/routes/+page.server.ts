@@ -3,7 +3,8 @@ import type { PageServerLoad } from './$types';
 import type {
 	PortfolioResponse,
 	RegSHOResponse,
-	RecommendationsResponse
+	RecommendationsResponse,
+	BlogResponse
 } from '$lib/types';
 
 const API_BASE = env.API_URL || 'http://localhost:8000';
