@@ -283,6 +283,52 @@ async def get_regsho():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/blog")
+async def get_blog_posts():
+    """
+    Get recent blog posts from 까꿍토끼.
+    Returns posts with extracted tickers and keywords.
+    """
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            SELECT id, title, url, tickers, keywords, published_at, is_read, created_at
+            FROM blog_posts
+            ORDER BY published_at DESC
+            LIMIT 20
+            """
+        )
+        posts = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        result = []
+        for post in posts:
+            result.append({
+                "id": post["id"],
+                "title": post["title"],
+                "url": post["url"],
+                "tickers": post["tickers"] if post["tickers"] else [],
+                "keywords": post["keywords"] if post["keywords"] else [],
+                "published_at": post["published_at"].isoformat() if post["published_at"] else None,
+                "is_read": post["is_read"],
+            })
+
+        return {
+            "posts": result,
+            "total_count": len(result),
+            "unread_count": sum(1 for p in result if not p["is_read"]),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/recommendations")
 async def get_recommendations():
     """

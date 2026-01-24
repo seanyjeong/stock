@@ -1,138 +1,102 @@
 # Daily Stock Story - Handoff
 
-**작성일**: 2026-01-24 (세션 2)
+**작성일**: 2026-01-24
+**세션**: v1.0.0 배포 완료
 
 ---
 
-## 현재 상태: ralphy 실행 중
+## 현재 상태
 
-```bash
-cd ~/dailystockstory
-ralphy --max-iterations 30
+### ✅ 배포 완료
+- **GitHub**: https://github.com/seanyjeong/stock
+- **Vercel**: https://web-lyart-rho-73.vercel.app
+- **API**: https://stock-api.sean8320.dedyn.io
+- **버전**: v1.0.0
+
+### ✅ 구현됨
+- 포트폴리오 조회 (읽기 전용)
+- 추천 종목 (단타/스윙/장기)
+- RegSHO 리스트
+- 모바일 UI + 한글화
+- GitHub → Vercel 자동 배포
+
+### ❌ 미구현
+- 카카오 로그인
+- 블로그 인사이트 (API만 있음)
+- 포트폴리오 CRUD
+- 매매 기록
+- 세금 계산 표시
+
+---
+
+## 다음 세션에서 할 일
+
+### 1. 카카오 로그인 구현
+```
+참고: ~/mprojects/ 에 카카오 로그인 구현되어 있음
+- 토큰 값 참고
+- REST API Key 필요
+```
+
+### 2. 블로그 UI 추가
+- API `/api/blog` 이미 있음
+- 메인 페이지에 섹션 추가
+
+### 3. 포트폴리오 CRUD
+- 현재 하드코딩됨
+- DB 테이블: `portfolio`
+- API: POST/PUT/DELETE
+
+### 4. 매매 기록 + 손절/익절 설정
+
+---
+
+## 파일 구조
+
+```
+~/dailystockstory/
+├── api/main.py          # FastAPI (포트 8340)
+├── web/                  # SvelteKit 웹앱
+│   └── src/routes/
+│       ├── +page.svelte  # 메인 대시보드
+│       └── login/        # 로그인 페이지 (미연결)
+├── docs/plans/
+│   └── PLAN_v1.1-features.md  # 다음 버전 계획
+├── stock_collector.py    # 데이터 수집 (cron)
+└── read_briefing.py      # 브리핑 CLI
 ```
 
 ---
 
-## 완료된 작업
+## 명령어
 
-### 1. Discovery Interview
-- 요구사항 수집 완료
-- 핵심: 올인원 대시보드, 모바일/PC, 다크 모드
+```bash
+# 브리핑 확인
+uv run python ~/dailystockstory/read_briefing.py
 
-### 2. Feature Planner
-- 6 Phase 계획 수립
-- `docs/plans/PLAN_daily-stock-story-webapp.md`
+# API 서버 (수동)
+cd ~/dailystockstory && uv run uvicorn api.main:app --host 0.0.0.0 --port 8340
 
-### 3. 브레인스토밍
-- 관심 종목(Watchlist) 기능 추가
-- 추천 성과 추적 기능 추가
-
-### 4. PRD 작성
-- ralphy 형식 (체크박스) 완성
-- **`PRD.md`** (루트)
-- 기존 시스템 분석 반영
-- 신규 테이블 SQL 포함
+# 배포
+git push  # → Vercel 자동 배포
+```
 
 ---
 
-## 문서 위치
+## 환경
+
+- **Vercel 토큰**: `~/.config/opencode/.env`
+- **Caddy**: stock.sean8320.dedyn.io, stock-api.sean8320.dedyn.io
+
+---
+
+## 참고 문서
 
 | 문서 | 경로 |
 |------|------|
-| **PRD (ralphy용)** | `PRD.md` |
-| PRD 상세 | `docs/PRD_daily-stock-story.md` |
-| 스펙 | `thoughts/shared/specs/2026-01-24-daily-stock-story-webapp.md` |
-| 계획 | `docs/plans/PLAN_daily-stock-story-webapp.md` |
-
----
-
-## 기존 시스템 (변경 금지!)
-
-### Cron Jobs
-```cron
-0 9,18 * * * uv run python stock_collector.py    # 주가, RegSHO, 블로그
-0 21 * * *   uv run python day_trader_scanner.py  # 단타 추천
-0 9,21 * * * uv run python swing_long_scanner.py  # 스윙/장기 추천
-```
-
-### 기존 DB 테이블
-- stock_briefing, stock_prices, regsho_list
-- blog_posts, blogger_tickers
-- day_trade_recommendations, swing_recommendations, longterm_recommendations
-
-### 신규 테이블 (생성 필요)
-- stock_notes, push_subscriptions, trade_history
-- user_settings, watchlist, recommendation_history
-
----
-
-## 기술 스택
-
-| Layer | Tech |
-|-------|------|
-| Frontend | SvelteKit |
-| Backend | FastAPI (Python) |
-| DB | PostgreSQL (continuous_claude) |
-| Hosting | Caddy + systemd |
-
-### 도메인
-- 프론트: https://stock.sean8320.dedyn.io → localhost:3000
-- API: https://stock-api.sean8320.dedyn.io → localhost:8340
-
----
-
-## 다음 단계
-
-1. **ralphy 완료 확인**
-   ```bash
-   # 진행 상황 확인
-   cat .ralphy/progress.txt
-   ```
-
-2. **테스트**
-   - API: `curl https://stock-api.sean8320.dedyn.io/health`
-   - 프론트: 브라우저에서 `https://stock.sean8320.dedyn.io`
-
-3. **문제 시 ralph-loop으로 수정**
-   ```bash
-   /ralph-loop "테스트 실패 수정. pytest api/tests/ 통과시켜." --max-iterations 20
-   ```
-
----
-
-## 포트폴리오 현황 (참고)
-
-- **BNAI**: 464주 @ $9.55 → **+513%**
-- **GLSI**: 67주 @ $25.22 → +3%
-- **총 평가**: ₩41,911,622
-
----
-
----
-
-## TODO: MCP 서버 설정 필요
-
-다음 세션에서:
-```bash
-# GitHub MCP
-npx @anthropic/create-mcp-server github
-
-# n8n MCP (API 기반)
-# n8n API: http://localhost:5678/api/v1
-# API Key: ~/.config/opencode/.env의 PACA_N8N_API_KEY
-```
-
----
-
-## 플러그인 설정 (완료)
-
-**활성화됨:**
-- code-review, commit-commands, frontend-design
-- pr-review-toolkit, superpowers
-
-**비활성화 (CC v3 훅 충돌):**
-- ralph-loop (Stop hook)
-- security-guidance (hook)
+| PRD | `docs/PRD_daily-stock-story.md` |
+| v1.1 계획 | `docs/plans/PLAN_v1.1-features.md` |
+| 카카오 로그인 참고 | `~/mprojects/` |
 
 ---
 
