@@ -4,6 +4,7 @@
 	const navItems = [
 		{ href: '/', label: '홈', icon: '🏠' },
 		{ href: '/portfolio', label: '포트폴리오', icon: '💰' },
+		{ href: '/watchlist', label: '관심', icon: '⭐' },
 		{ href: '/history', label: '이력', icon: '📋' },
 		{ href: '/settings', label: '설정', icon: '⚙️' }
 	];
@@ -45,11 +46,12 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 0.25rem;
-		padding: 0.375rem 1rem;
+		padding: 0.375rem 0.5rem;
 		text-decoration: none;
 		color: #8b949e;
 		transition: color 0.15s;
 		border-radius: 8px;
+		min-width: 56px;
 	}
 
 	.nav-item:hover {

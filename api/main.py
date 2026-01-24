@@ -15,6 +15,7 @@ from db import get_db
 from api.auth import router as auth_router
 from api.portfolio import router as portfolio_router
 from api.trades import router as trades_router
+from api.watchlist import router as watchlist_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(portfolio_router)
 app.include_router(trades_router)
+app.include_router(watchlist_router)
 
 
 @app.exception_handler(HTTPException)

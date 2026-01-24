@@ -11,40 +11,33 @@
 - **GitHub**: https://github.com/seanyjeong/stock
 - **Vercel**: https://web-lyart-rho-73.vercel.app
 - **API**: https://stock-api.sean8320.dedyn.io
-- **버전**: v1.1.0
+- **버전**: v1.2.0
 
 ### ✅ 구현 완료 (v1.1)
 1. 블로거 인사이트 UI
 2. 세금 계산 표시 (22%, 250만원 공제)
-3. 하단 네비게이션 (홈/포트폴리오/이력/설정)
+3. 하단 네비게이션 (홈/포트폴리오/관심/이력/설정)
 4. 카카오 로그인 API
 5. 사용자 승인 시스템 (관리자 페이지)
 6. 온보딩 UI
 7. 포트폴리오 CRUD (검색/추가/수정/삭제)
 8. 매매 기록 + 손절/익절
 9. 익절 계산기
+10. 관심 종목 (Watchlist) - 목표가/알림가 설정
 
 ### ❌ 미구현
-- 관심 종목 (Watchlist)
-- 푸시 알림
+- 푸시 알림 (FCM 설정 필요)
 
 ---
 
 ## 다음 세션에서 할 일
 
-### P1: 관심 종목
-```
-/api/watchlist 엔드포인트 추가
-- user_watchlist 테이블
-- 검색 → 추가
-- 현재가 표시
-```
-
-### P2: 푸시 알림
+### P1: 푸시 알림
 ```
 FCM 또는 Web Push 설정 필요
-- 가격 알림
+- 가격 알림 (목표가/알림가 도달)
 - RegSHO 등재 알림
+- Service Worker 구현
 ```
 
 ---
@@ -60,6 +53,7 @@ FCM 또는 Web Push 설정 필요
 | `/api/auth/*` | 인증 (카카오 로그인, 관리자) |
 | `/api/portfolio/*` | 포트폴리오 CRUD |
 | `/api/trades/*` | 매매 기록 |
+| `/api/watchlist/*` | 관심 종목 CRUD |
 
 ---
 
@@ -71,7 +65,8 @@ FCM 또는 Web Push 설정 필요
 │   ├── main.py          # FastAPI 메인
 │   ├── auth.py          # 카카오 로그인 + 관리자
 │   ├── portfolio.py     # 포트폴리오 CRUD
-│   └── trades.py        # 매매 기록
+│   ├── trades.py        # 매매 기록
+│   └── watchlist.py     # 관심 종목
 ├── web/src/routes/
 │   ├── +page.svelte     # 대시보드 (세금 계산 포함)
 │   ├── login/           # 카카오 로그인
@@ -80,6 +75,7 @@ FCM 또는 Web Push 설정 필요
 │   ├── onboarding/      # 온보딩
 │   ├── portfolio/       # 포트폴리오 관리
 │   ├── history/         # 매매 이력
+│   ├── watchlist/       # 관심 종목
 │   ├── calculator/      # 익절 계산기
 │   └── settings/        # 설정
 ├── stock_collector.py   # 데이터 수집 (cron)
@@ -134,6 +130,7 @@ git push  # → Vercel 자동 배포
 - `users` - 사용자
 - `user_holdings` - 사용자 포트폴리오
 - `trades` - 매매 기록
+- `user_watchlist` - 관심 종목
 
 ---
 
