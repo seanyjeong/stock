@@ -182,6 +182,24 @@ ALTER TABLE users ADD COLUMN investment_style JSONB;
 
 ---
 
+## Cron 자동화
+
+**실행 스케줄:**
+```bash
+# 단타 스캐너 - 미국 장 시작 전 (한국 시간 22:00)
+0 22 * * 1-5 cd ~/dailystockstory && uv run python scanners/day_scanner.py
+
+# 스윙/장기 스캐너 - 미국 장 마감 후 (한국 시간 07:00)
+0 7 * * 2-6 cd ~/dailystockstory && uv run python scanners/swing_scanner.py
+0 7 * * 2-6 cd ~/dailystockstory && uv run python scanners/long_scanner.py
+```
+
+**DB 저장:**
+- 각 스캐너 결과 → `recommendations` 테이블
+- 사용자 성향별 필터링 → API에서 처리
+
+---
+
 ## 주의사항
 - "얼탱이 없게" = 추천이 말이 되어야 함
 - 모든 추천에 명확한 이유 제시
