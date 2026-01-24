@@ -161,8 +161,16 @@ async def get_portfolio():
                 (tickers,)
             )
             prices = {row["ticker"]: row for row in cur.fetchall()}
+
+            # Get company names
+            cur.execute(
+                "SELECT ticker, company_name FROM ticker_info WHERE ticker = ANY(%s)",
+                (tickers,)
+            )
+            company_names = {row["ticker"]: row["company_name"] for row in cur.fetchall()}
         else:
             prices = {}
+            company_names = {}
 
         cur.close()
         conn.close()
@@ -205,6 +213,7 @@ async def get_portfolio():
 
             result_portfolio.append({
                 "ticker": ticker,
+                "company_name": company_names.get(ticker),
                 "shares": shares,
                 "avg_cost": avg_cost,
                 "current_price": current_price,
