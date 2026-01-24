@@ -4,7 +4,7 @@
 
 	interface SqueezeItem {
 		ticker: string;
-		company_name: string | null;
+		company_name?: string | null;
 		short_interest: number | null;
 		borrow_rate: number | null;
 		days_to_cover: number | null;
@@ -12,7 +12,8 @@
 		available_shares: number | null;
 		float_shares: number | null;
 		dilution_protected: boolean;
-		regsho_days: number;
+		has_positive_news: boolean;
+		has_negative_news: boolean;
 		squeeze_score: number;
 		combined_score: number;
 		rating: string;
@@ -30,6 +31,7 @@
 	let isLoading = $state(true);
 	let error = $state('');
 	let filterRating = $state('all');
+	let showScoreModal = $state(false);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -86,7 +88,10 @@
 
 <div class="container">
 	<div class="header">
-		<h1>🔥 숏스퀴즈 분석 v2</h1>
+		<div class="title-row">
+			<h1>🔥 숏스퀴즈 분석 v2</h1>
+			<button class="info-btn" onclick={() => showScoreModal = true} title="스코어 계산법">?</button>
+		</div>
 		{#if data}
 			<div class="stats">
 				<span class="stat hot">HOT {data.hot_count}</span>
@@ -114,6 +119,8 @@
 		<div class="legend-item"><span class="dot dtc"></span> DTC: Days to Cover</div>
 		<div class="legend-item"><span class="dot zb"></span> ZB: Zero Borrow</div>
 		<div class="legend-item"><span class="dot dp"></span> DP: Dilution Protected</div>
+		<div class="legend-item"><span class="dot pn"></span> PN: Positive News</div>
+		<div class="legend-item"><span class="dot nn"></span> NN: Negative News</div>
 	</div>
 
 	{#if isLoading}
@@ -130,15 +137,21 @@
 					<div class="card-main">
 						<div class="card-header">
 							<div class="ticker-section">
-								<a href="/stock/{item.ticker}" class="ticker">{item.ticker}</a>
+								<a href="/stock/{item.ticker}" class="ticker" title={item.company_name || item.ticker}>{item.ticker}</a>
 								{#if item.is_holding}
 									<span class="badge holding">보유</span>
 								{/if}
 								{#if item.zero_borrow}
-									<span class="badge zero-borrow">Zero Borrow</span>
+									<span class="badge zero-borrow">ZB</span>
 								{/if}
 								{#if item.dilution_protected}
-									<span class="badge protected">희석방어</span>
+									<span class="badge protected">DP</span>
+								{/if}
+								{#if item.has_positive_news}
+									<span class="badge positive-news">PN</span>
+								{/if}
+								{#if item.has_negative_news}
+									<span class="badge negative-news">NN</span>
 								{/if}
 							</div>
 							<div class="score-section">
@@ -148,10 +161,6 @@
 								<span class="score">{item.combined_score}점</span>
 							</div>
 						</div>
-
-						{#if item.company_name}
-							<div class="company-name">{item.company_name}</div>
-						{/if}
 
 						<div class="metrics">
 							<div class="metric" title="Short Interest %">
@@ -168,17 +177,13 @@
 							</div>
 							<div class="metric" title="Days to Cover">
 								<span class="label">DTC</span>
-								<span class="value">{item.days_to_cover ? item.days_to_cover.toFixed(2) : '-'}</span>
+								<span class="value">{item.days_to_cover ? item.days_to_cover.toFixed(1) : '-'}</span>
 							</div>
 							<div class="metric" title="Float Shares">
 								<span class="label">Float</span>
 								<span class="value" class:low={item.float_shares && item.float_shares < 10_000_000}>
 									{formatNumber(item.float_shares)}
 								</span>
-							</div>
-							<div class="metric" title="RegSHO 연속 등재일">
-								<span class="label">RegSHO</span>
-								<span class="value">{item.regsho_days}일</span>
 							</div>
 						</div>
 					</div>
@@ -187,6 +192,59 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Score Modal -->
+{#if showScoreModal}
+	<div class="modal-overlay" onclick={() => showScoreModal = false}>
+		<div class="modal" onclick={(e) => e.stopPropagation()}>
+			<div class="modal-header">
+				<h2>스코어 계산법</h2>
+				<button class="close-btn" onclick={() => showScoreModal = false}>&times;</button>
+			</div>
+			<div class="modal-body">
+				<div class="score-section">
+					<h3>Base Score (0-60점)</h3>
+					<ul>
+						<li><strong>SI</strong> Short Interest: 0-25점 (50%+ = 만점)</li>
+						<li><strong>BR</strong> Borrow Rate: 0-20점 (200%+ = 만점)</li>
+						<li><strong>DTC</strong> Days to Cover: 0-15점 (10일+ = 만점)</li>
+					</ul>
+				</div>
+				<div class="score-section">
+					<h3>Squeeze Pressure Bonus (0-25점)</h3>
+					<ul>
+						<li><strong>ZB</strong> Zero Borrow: +10점</li>
+						<li>Low Float (&lt;10M): +5점</li>
+						<li><strong>DP</strong> Warrant/Covenant: +10점</li>
+					</ul>
+				</div>
+				<div class="score-section">
+					<h3>Catalyst Bonus (0-10점)</h3>
+					<ul>
+						<li><strong>PN</strong> Positive News (50건+): +10점</li>
+					</ul>
+				</div>
+				<div class="score-section">
+					<h3>Risk Penalty (-15점)</h3>
+					<ul>
+						<li>Negative News (20건+): -15점</li>
+					</ul>
+				</div>
+				<div class="score-section">
+					<h3>Urgency Bonus (0-15점)</h3>
+					<ul>
+						<li>BR &gt; 300%: +10점</li>
+						<li>SI &gt; 40%: +5점</li>
+					</ul>
+				</div>
+				<div class="rating-guide">
+					<h3>등급</h3>
+					<p>🔥 HOT: 60점+ | 👀 WATCH: 40-59점 | ❄️ COLD: 40점 미만</p>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.container {
@@ -292,6 +350,8 @@
 	.dot.dtc { background: #a371f7; }
 	.dot.zb { background: #f0883e; }
 	.dot.dp { background: #3fb950; }
+	.dot.pn { background: #d2a8ff; }
+	.dot.nn { background: #f85149; }
 
 	.loading {
 		text-align: center;
@@ -390,6 +450,16 @@
 		color: #3fb950;
 	}
 
+	.badge.positive-news {
+		background: rgba(163, 113, 247, 0.2);
+		color: #a371f7;
+	}
+
+	.badge.negative-news {
+		background: rgba(248, 81, 73, 0.2);
+		color: #f85149;
+	}
+
 	.score-section {
 		display: flex;
 		flex-direction: column;
@@ -446,5 +516,125 @@
 
 	.metric .value.low {
 		color: #3fb950;
+	}
+
+	/* Title row with info button */
+	.title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.info-btn {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 1px solid #8b949e;
+		background: transparent;
+		color: #8b949e;
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.info-btn:hover {
+		border-color: #58a6ff;
+		color: #58a6ff;
+	}
+
+	/* Modal */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+		padding: 1rem;
+	}
+
+	.modal {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 12px;
+		max-width: 400px;
+		width: 100%;
+		max-height: 80vh;
+		overflow-y: auto;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 1px solid #30363d;
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 1.1rem;
+	}
+
+	.close-btn {
+		background: none;
+		border: none;
+		color: #8b949e;
+		font-size: 1.5rem;
+		cursor: pointer;
+		line-height: 1;
+	}
+
+	.close-btn:hover {
+		color: #f0f6fc;
+	}
+
+	.modal-body {
+		padding: 1rem;
+	}
+
+	.score-section {
+		margin-bottom: 1rem;
+	}
+
+	.score-section h3 {
+		font-size: 0.85rem;
+		color: #58a6ff;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.score-section ul {
+		margin: 0;
+		padding-left: 1.25rem;
+		font-size: 0.8rem;
+		color: #c9d1d9;
+	}
+
+	.score-section li {
+		margin-bottom: 0.25rem;
+	}
+
+	.rating-guide {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid #30363d;
+	}
+
+	.rating-guide h3 {
+		font-size: 0.85rem;
+		color: #58a6ff;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.rating-guide p {
+		font-size: 0.8rem;
+		margin: 0;
 	}
 </style>

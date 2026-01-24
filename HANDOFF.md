@@ -1,6 +1,12 @@
-# 숏스퀴즈 분석 v1.8.0 핸드오프
+# 숏스퀴즈 분석 v1.9.0 핸드오프
 
 ## 완료된 작업
+
+### v1.9.0 주요 기능
+1. **Positive News 감지** - SEC EDGAR에서 deal/partnership/contract/agreement 키워드 검색
+2. **Negative News 감지** - lawsuit/bankruptcy/default/fraud/investigation/delisting 키워드
+3. **스코어 보너스/페널티** - 호재 +10점, 악재 -15점
+4. **프론트엔드 개선** - 종목명 제거, 티커 툴팁, 스코어 모달, PN/NN 뱃지 추가
 
 ### v1.8.0 주요 기능
 1. **Zero Borrow 감지** - shortablestocks.com 스크래핑 (stealth 모드)
@@ -23,6 +29,9 @@ Squeeze Pressure Bonus (0-25):
 ├─ Zero Borrow (available=0): +10점
 ├─ Low Float (<10M): +5점
 └─ Warrant/Covenant: +10점
+
+Catalyst Bonus (0-10):
+└─ Positive News (50건+): +10점
 
 Urgency Bonus (0-15):
 ├─ BR > 300%: +10점

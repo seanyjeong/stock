@@ -126,6 +126,8 @@ def init_db():
             available_shares BIGINT,
             float_shares BIGINT,
             dilution_protected BOOLEAN DEFAULT FALSE,
+            has_positive_news BOOLEAN DEFAULT FALSE,
+            has_negative_news BOOLEAN DEFAULT FALSE,
             source VARCHAR(50),
             collected_at TIMESTAMP DEFAULT NOW()
         );
@@ -141,6 +143,12 @@ def init_db():
             END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='dilution_protected') THEN
                 ALTER TABLE squeeze_data ADD COLUMN dilution_protected BOOLEAN DEFAULT FALSE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='has_positive_news') THEN
+                ALTER TABLE squeeze_data ADD COLUMN has_positive_news BOOLEAN DEFAULT FALSE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='squeeze_data' AND column_name='has_negative_news') THEN
+                ALTER TABLE squeeze_data ADD COLUMN has_negative_news BOOLEAN DEFAULT FALSE;
             END IF;
         END $$;
 
@@ -389,6 +397,8 @@ async def collect_sec_dilution_info(tickers):
                     "warrant_mentions": 0,
                     "dilution_mentions": 0,
                     "covenant_mentions": 0,
+                    "positive_news": 0,  # 호재 뉴스
+                    "negative_news": 0,  # 악재 뉴스
                 }
 
                 # SEC Full-Text Search: 티커 + 키워드로 직접 검색
@@ -397,6 +407,9 @@ async def collect_sec_dilution_info(tickers):
                     ("dilution", "dilution_mentions"),
                     ("covenant", "covenant_mentions"),
                 ]
+
+                # 호재 키워드 (2025년 이후만)
+                positive_keywords = ["deal", "partnership", "contract", "agreement"]
 
                 for keyword, field in keywords_to_search:
                     search_url = f'https://efts.sec.gov/LATEST/search-index?q="{keyword}" AND "{ticker}"&dateRange=custom&startdt=2024-01-01'
@@ -407,15 +420,38 @@ async def collect_sec_dilution_info(tickers):
                         count = data.get("hits", {}).get("total", {}).get("value", 0)
                         found_info[field] = count
 
+                # 호재 공시 검색 (2025년)
+                for pk in positive_keywords:
+                    search_url = f'https://efts.sec.gov/LATEST/search-index?q="{pk}" AND "{ticker}"&dateRange=custom&startdt=2025-01-01'
+                    resp = await client.get(search_url, headers=headers)
+                    if resp.status_code == 200:
+                        count = resp.json().get("hits", {}).get("total", {}).get("value", 0)
+                        found_info["positive_news"] += count
+
+                # 악재 키워드 검색 (2025년)
+                negative_keywords = ["lawsuit", "bankruptcy", "default", "fraud", "investigation", "delisting"]
+                for nk in negative_keywords:
+                    search_url = f'https://efts.sec.gov/LATEST/search-index?q="{nk}" AND "{ticker}"&dateRange=custom&startdt=2025-01-01'
+                    resp = await client.get(search_url, headers=headers)
+                    if resp.status_code == 200:
+                        count = resp.json().get("hits", {}).get("total", {}).get("value", 0)
+                        found_info["negative_news"] += count
+
                 # 결과 해석
-                has_warrant = found_info["warrant_mentions"] > 10  # 10건 이상이면 워런트 있음
+                has_warrant = found_info["warrant_mentions"] > 10
                 has_dilution = found_info["dilution_mentions"] > 5
                 has_covenant = found_info["covenant_mentions"] > 3
+                has_positive_news = found_info["positive_news"] > 50  # 50건 이상 = 호재
+                has_negative_news = found_info["negative_news"] > 20  # 20건 이상 = 악재
 
                 dilution_data[ticker] = {
                     "has_warrant_info": has_warrant,
                     "has_debt_covenant": has_covenant,
                     "dilution_risk": has_dilution,
+                    "has_positive_news": has_positive_news,
+                    "has_negative_news": has_negative_news,
+                    "positive_news_count": found_info["positive_news"],
+                    "negative_news_count": found_info["negative_news"],
                     "warrant_mentions": found_info["warrant_mentions"],
                     "dilution_mentions": found_info["dilution_mentions"],
                     "covenant_mentions": found_info["covenant_mentions"],
@@ -429,6 +465,10 @@ async def collect_sec_dilution_info(tickers):
                     details.append(f"희석({found_info['dilution_mentions']}건)")
                 if has_covenant:
                     details.append(f"covenant({found_info['covenant_mentions']}건)")
+                if has_positive_news:
+                    details.append(f"호재({found_info['positive_news']}건)🔥")
+                if has_negative_news:
+                    details.append(f"악재({found_info['negative_news']}건)⚠️")
 
                 if details:
                     print(f"  🔍 {ticker}: {', '.join(details)}")
@@ -441,6 +481,10 @@ async def collect_sec_dilution_info(tickers):
                     "has_warrant_info": False,
                     "has_debt_covenant": False,
                     "dilution_risk": False,
+                    "has_positive_news": False,
+                    "has_negative_news": False,
+                    "positive_news_count": 0,
+                    "negative_news_count": 0,
                     "warrant_mentions": 0,
                     "dilution_mentions": 0,
                     "covenant_mentions": 0,
@@ -503,6 +547,8 @@ async def collect_squeeze_data(page, tickers):
                 has_warrant_info=dilution_info.get("has_warrant_info", False),
                 has_debt_covenant=dilution_info.get("has_debt_covenant", False),
                 float_shares=float_shares,
+                has_positive_news=dilution_info.get("has_positive_news", False),
+                has_negative_news=dilution_info.get("has_negative_news", False),
             )
 
             squeeze_data[ticker] = {
@@ -514,6 +560,8 @@ async def collect_squeeze_data(page, tickers):
                 "available_shares": available_shares,
                 "float_shares": float_shares,
                 "dilution_protected": dilution_info.get("has_warrant_info") or dilution_info.get("has_debt_covenant"),
+                "has_positive_news": dilution_info.get("has_positive_news", False),
+                "has_negative_news": dilution_info.get("has_negative_news", False),
             }
 
             print(f"  {ticker}: SI {short_interest}% | BR {borrow_rate}% | Score {squeeze_score}")
@@ -529,6 +577,8 @@ async def collect_squeeze_data(page, tickers):
                 "available_shares": None,
                 "float_shares": None,
                 "dilution_protected": False,
+                "has_positive_news": False,
+                "has_negative_news": False,
             }
 
     return squeeze_data
@@ -536,7 +586,8 @@ async def collect_squeeze_data(page, tickers):
 
 def calculate_squeeze_score_v2(borrow_rate, short_interest, days_to_cover,
                                available_shares=None, has_warrant_info=False,
-                               has_debt_covenant=False, float_shares=None):
+                               has_debt_covenant=False, float_shares=None,
+                               has_positive_news=False, has_negative_news=False):
     """
     숏스퀴즈 확률 점수 v2 (0-100)
 
@@ -549,6 +600,12 @@ def calculate_squeeze_score_v2(borrow_rate, short_interest, days_to_cover,
       - No shares available: +10점
       - Low float (<10M): +5점
       - Warrant/debt protection: +10점
+
+    Catalyst Bonus (0-10):
+      - Positive news/filings: +10점
+
+    Risk Penalty (-15):
+      - Negative news (lawsuit/bankruptcy/fraud): -15점
 
     Urgency Bonus (0-15):
       - Very high borrow rate (>300%): +10점
@@ -589,6 +646,18 @@ def calculate_squeeze_score_v2(borrow_rate, short_interest, days_to_cover,
     # Warrant/Debt protection = 희석 방어
     if has_warrant_info or has_debt_covenant:
         score += 10
+
+    # === Catalyst Bonus (0-10) ===
+
+    # Positive news/filings = 호재 공시
+    if has_positive_news:
+        score += 10
+
+    # === Risk Penalty (-15) ===
+
+    # Negative news = 악재 (소송, 파산, 사기 등)
+    if has_negative_news:
+        score -= 15
 
     # === Urgency Bonus (0-15) ===
 
@@ -837,8 +906,8 @@ def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers, squee
         for ticker, data in squeeze_data.items():
             if data.get("squeeze_score") is not None:
                 cur.execute("""
-                    INSERT INTO squeeze_data (ticker, borrow_rate, short_interest, days_to_cover, short_volume, squeeze_score, available_shares, float_shares, dilution_protected, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'v2_combined')
+                    INSERT INTO squeeze_data (ticker, borrow_rate, short_interest, days_to_cover, short_volume, squeeze_score, available_shares, float_shares, dilution_protected, has_positive_news, has_negative_news, source)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'v2_combined')
                 """, (
                     ticker,
                     data.get("borrow_rate"),
@@ -849,6 +918,8 @@ def save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers, squee
                     data.get("available_shares"),
                     data.get("float_shares"),
                     data.get("dilution_protected", False),
+                    data.get("has_positive_news", False),
+                    data.get("has_negative_news", False),
                 ))
 
     # 브리핑 JSON 생성 및 저장

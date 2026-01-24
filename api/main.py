@@ -444,6 +444,8 @@ async def get_squeeze_analysis():
                 s.available_shares,
                 s.float_shares,
                 s.dilution_protected,
+                s.has_positive_news,
+                s.has_negative_news,
                 s.collected_at,
                 t.company_name,
                 r.days_on_list
@@ -496,7 +498,6 @@ async def get_squeeze_analysis():
 
             result.append({
                 "ticker": row["ticker"],
-                "company_name": row["company_name"],
                 # 핵심 지표
                 "short_interest": float(row["short_interest"]) if row["short_interest"] else None,
                 "borrow_rate": float(row["borrow_rate"]) if row["borrow_rate"] else None,
@@ -506,8 +507,8 @@ async def get_squeeze_analysis():
                 "available_shares": int(row["available_shares"]) if row["available_shares"] else None,
                 "float_shares": int(row["float_shares"]) if row["float_shares"] else None,
                 "dilution_protected": bool(row["dilution_protected"]) if row["dilution_protected"] is not None else False,
-                # RegSHO
-                "regsho_days": regsho_days,
+                "has_positive_news": bool(row["has_positive_news"]) if row["has_positive_news"] is not None else False,
+                "has_negative_news": bool(row["has_negative_news"]) if row["has_negative_news"] is not None else False,
                 # 점수
                 "squeeze_score": squeeze_score,
                 "combined_score": combined_score,
