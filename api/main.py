@@ -14,6 +14,7 @@ from psycopg2.extras import RealDictCursor
 from db import get_db
 from api.auth import router as auth_router
 from api.portfolio import router as portfolio_router
+from api.trades import router as trades_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ app.add_middleware(
 # Include auth router
 app.include_router(auth_router)
 app.include_router(portfolio_router)
+app.include_router(trades_router)
 
 
 @app.exception_handler(HTTPException)
