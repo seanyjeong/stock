@@ -175,8 +175,8 @@
 							</div>
 							<div class="metric" title="Borrow Rate %">
 								<span class="label">BR</span>
-								<span class="value" class:extreme={item.borrow_rate && item.borrow_rate >= 999}>
-									{item.borrow_rate ? (item.borrow_rate >= 999 ? '999+%' : item.borrow_rate.toFixed(0) + '%') : '-'}
+								<span class="value" class:extreme={item.borrow_rate && item.borrow_rate >= 999 && !item.zero_borrow}>
+									{item.zero_borrow ? '-' : (item.borrow_rate ? item.borrow_rate.toFixed(0) + '%' : '-')}
 								</span>
 							</div>
 							<div class="metric" title="Days to Cover">
