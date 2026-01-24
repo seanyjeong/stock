@@ -24,18 +24,20 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 }
 
 export const load: PageServerLoad = async ({ fetch }) => {
-	const [portfolio, regsho, recommendations] = await Promise.all([
+	const [portfolio, regsho, recommendations, blog] = await Promise.all([
 		fetchApi<PortfolioResponse>('/api/portfolio', fetch),
 		fetchApi<RegSHOResponse>('/api/regsho', fetch),
-		fetchApi<RecommendationsResponse>('/api/recommendations', fetch)
+		fetchApi<RecommendationsResponse>('/api/recommendations', fetch),
+		fetchApi<BlogResponse>('/api/blog', fetch)
 	]);
 
-	const hasData = portfolio || regsho || recommendations;
+	const hasData = portfolio || regsho || recommendations || blog;
 
 	return {
 		portfolio,
 		regsho,
 		recommendations,
+		blog,
 		error: hasData ? null : 'Failed to load data from API'
 	};
 };

@@ -106,3 +106,19 @@ export interface BriefingResponse {
 	data: BriefingData;
 	created_at: string | null;
 }
+
+export interface BlogPost {
+	id: number;
+	title: string;
+	url: string;
+	tickers: string[];
+	keywords: string[];
+	published_at: string | null;
+	is_read: boolean;
+}
+
+export interface BlogResponse {
+	posts: BlogPost[];
+	total_count: number;
+	unread_count: number;
+}

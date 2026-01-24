@@ -8,6 +8,7 @@
 	let portfolio = $derived(data.portfolio);
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
+	let blog = $derived(data.blog);
 	let error = $derived(data.error);
 
 	function formatCurrency(value: number, currency: 'USD' | 'KRW' = 'USD'): string {
@@ -166,6 +167,51 @@
 			<!-- Recommendations Section -->
 			{#if recommendations}
 				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} />
+			{/if}
+
+			<!-- Blog Insights Section -->
+			{#if blog && blog.posts.length > 0}
+				<section class="card blog-card">
+					<h2>📝 블로거 인사이트</h2>
+					{#if blog.unread_count > 0}
+						<p class="blog-stats">새 글 {blog.unread_count}개 | 총 {blog.total_count}개</p>
+					{:else}
+						<p class="blog-stats">총 {blog.total_count}개</p>
+					{/if}
+
+					<div class="blog-list">
+						{#each blog.posts.slice(0, 5) as post}
+							<div class="blog-item" class:unread={!post.is_read}>
+								<div class="blog-content">
+									<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-title">
+										{post.title}
+									</a>
+									<div class="blog-meta">
+										{#if post.published_at}
+											<span class="blog-date">{formatDate(post.published_at)}</span>
+										{/if}
+									</div>
+									{#if post.tickers.length > 0 || post.keywords.length > 0}
+										<div class="blog-tags">
+											{#each post.tickers as ticker}
+												<span class="tag ticker">${ticker}</span>
+											{/each}
+											{#each post.keywords.slice(0, 3) as keyword}
+												<span class="tag keyword">{keyword}</span>
+											{/each}
+										</div>
+									{/if}
+								</div>
+								<a href={post.url} target="_blank" rel="noopener noreferrer" class="blog-link-btn">
+									원문
+								</a>
+							</div>
+						{/each}
+					</div>
+					{#if blog.total_count > 5}
+						<p class="show-more">최근 5개만 표시 (총 {blog.total_count}개)</p>
+					{/if}
+				</section>
 			{/if}
 		</div>
 	{/if}
@@ -515,5 +561,103 @@
 
 	.neutral {
 		color: #8b949e;
+	}
+
+	/* Blog Section */
+	.blog-stats {
+		font-size: 0.75rem;
+		color: #8b949e;
+		margin: 0 0 0.75rem;
+	}
+
+	.blog-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.blog-item {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		background: #21262d;
+		padding: 0.75rem;
+		border-radius: 8px;
+	}
+
+	.blog-item.unread {
+		border-left: 3px solid #58a6ff;
+	}
+
+	.blog-content {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.blog-title {
+		display: block;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: #f0f6fc;
+		text-decoration: none;
+		margin-bottom: 0.375rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+
+	.blog-title:hover {
+		color: #58a6ff;
+	}
+
+	.blog-meta {
+		margin-bottom: 0.375rem;
+	}
+
+	.blog-date {
+		font-size: 0.7rem;
+		color: #8b949e;
+	}
+
+	.blog-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+	}
+
+	.tag {
+		font-size: 0.65rem;
+		padding: 0.125rem 0.375rem;
+		border-radius: 4px;
+		font-weight: 500;
+	}
+
+	.tag.ticker {
+		background: rgba(88, 166, 255, 0.2);
+		color: #58a6ff;
+	}
+
+	.tag.keyword {
+		background: rgba(139, 148, 158, 0.2);
+		color: #8b949e;
+	}
+
+	.blog-link-btn {
+		flex-shrink: 0;
+		padding: 0.375rem 0.625rem;
+		background: #30363d;
+		border-radius: 6px;
+		font-size: 0.7rem;
+		color: #8b949e;
+		text-decoration: none;
+		font-weight: 500;
+	}
+
+	.blog-link-btn:hover {
+		background: #3d444d;
+		color: #f0f6fc;
 	}
 </style>
