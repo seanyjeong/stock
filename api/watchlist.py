@@ -79,7 +79,7 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
         if not watchlist:
             return {"watchlist": [], "total_count": 0}
 
-        # 현재가 조회
+        # 현재가 조회 (DB에서 먼저)
         tickers = [item["ticker"] for item in watchlist]
         cur.execute("""
             SELECT DISTINCT ON (ticker)
@@ -89,6 +89,24 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
             ORDER BY ticker, collected_at DESC
         """, (tickers,))
         prices = {row["ticker"]: row for row in cur.fetchall()}
+
+        # DB에 없는 종목은 yfinance로 실시간 조회
+        missing_tickers = [t for t in tickers if t not in prices]
+        if missing_tickers:
+            import yfinance as yf
+            for ticker in missing_tickers:
+                try:
+                    stock = yf.Ticker(ticker)
+                    info = stock.fast_info
+                    prices[ticker] = {
+                        "ticker": ticker,
+                        "regular_price": getattr(info, 'last_price', None) or getattr(info, 'previous_close', None),
+                        "afterhours_price": None,
+                        "premarket_price": None,
+                        "collected_at": None
+                    }
+                except Exception:
+                    pass
 
         # 결과 병합
         result = []
