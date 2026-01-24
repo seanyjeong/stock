@@ -300,3 +300,129 @@ async def get_current_user_info(user: dict = Depends(require_user)):
 async def logout():
     """로그아웃 (클라이언트에서 토큰 삭제)"""
     return {"message": "로그아웃 되었습니다"}
+
+
+# Admin endpoints
+async def require_admin(user: dict = Depends(require_user)) -> dict:
+    """관리자만 접근 가능"""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="관리자만 접근 가능합니다")
+    return user
+
+
+@router.get("/admin/users")
+async def list_users(admin: dict = Depends(require_admin)):
+    """모든 사용자 목록 (관리자용)"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT id, kakao_id, nickname, email, profile_image,
+               is_approved, is_admin, created_at, last_login
+        FROM users
+        ORDER BY created_at DESC
+    """)
+    users = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return {
+        "users": [
+            {
+                "id": u["id"],
+                "kakao_id": str(u["kakao_id"]),
+                "nickname": u["nickname"],
+                "email": u["email"],
+                "profile_image": u["profile_image"],
+                "is_approved": u["is_approved"],
+                "is_admin": u["is_admin"],
+                "created_at": u["created_at"].isoformat() if u["created_at"] else None,
+                "last_login": u["last_login"].isoformat() if u["last_login"] else None,
+            }
+            for u in users
+        ],
+        "total_count": len(users),
+        "pending_count": sum(1 for u in users if not u["is_approved"]),
+    }
+
+
+@router.post("/admin/users/{user_id}/approve")
+async def approve_user(user_id: int, admin: dict = Depends(require_admin)):
+    """사용자 승인"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id, nickname FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+
+    if not user:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+    cur.execute("UPDATE users SET is_approved = TRUE WHERE id = %s", (user_id,))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return {"message": f"{user['nickname']}님이 승인되었습니다", "user_id": user_id}
+
+
+@router.post("/admin/users/{user_id}/revoke")
+async def revoke_user(user_id: int, admin: dict = Depends(require_admin)):
+    """사용자 승인 취소"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id, nickname FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+
+    if not user:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+    # 자신의 승인은 취소할 수 없음
+    if user_id == admin["id"]:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="자신의 승인은 취소할 수 없습니다")
+
+    cur.execute("UPDATE users SET is_approved = FALSE WHERE id = %s", (user_id,))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return {"message": f"{user['nickname']}님의 승인이 취소되었습니다", "user_id": user_id}
+
+
+@router.delete("/admin/users/{user_id}")
+async def delete_user(user_id: int, admin: dict = Depends(require_admin)):
+    """사용자 삭제"""
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id, nickname FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+
+    if not user:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다")
+
+    # 자신은 삭제할 수 없음
+    if user_id == admin["id"]:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=400, detail="자신을 삭제할 수 없습니다")
+
+    cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return {"message": f"{user['nickname']}님이 삭제되었습니다", "user_id": user_id}
