@@ -45,12 +45,6 @@
 	$effect(() => {
 		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
 	});
-	let regshoExpanded = $state(browser ? localStorage.getItem('regshoExpanded') === 'true' : false);
-
-	$effect(() => {
-		if (browser) localStorage.setItem('regshoExpanded', String(regshoExpanded));
-	});
-
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
 	let blog = $derived(data.blog);
@@ -857,76 +851,6 @@
 		margin: 0 0 0.5rem;
 	}
 
-	.regsho-header-row {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.5rem 0.75rem;
-		font-size: 0.7rem;
-		color: #8b949e;
-		border-bottom: 1px solid #30363d;
-		margin-bottom: 0.25rem;
-	}
-
-	.col-ticker {
-		min-width: 50px;
-		font-weight: 600;
-	}
-
-	.col-days {
-		min-width: 60px;
-		font-weight: 600;
-	}
-
-	.col-name {
-		flex: 1;
-		font-weight: 600;
-	}
-
-	.regsho-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.regsho-item {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		background: #21262d;
-		padding: 0.625rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.8rem;
-	}
-
-	.regsho-item.holding {
-		background: rgba(63, 185, 80, 0.15);
-		border: 1px solid #238636;
-	}
-
-	.regsho-ticker {
-		font-weight: 600;
-		color: #58a6ff;
-		min-width: 50px;
-	}
-
-	.regsho-item.holding .regsho-ticker {
-		color: #3fb950;
-	}
-
-	.regsho-days {
-		font-size: 0.7rem;
-		color: #f0883e;
-		min-width: 35px;
-	}
-
-	.regsho-name {
-		color: #8b949e;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		flex: 1;
-	}
 
 	.show-more {
 		font-size: 0.7rem;
