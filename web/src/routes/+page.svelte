@@ -44,7 +44,11 @@
 	$effect(() => {
 		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
 	});
-	let regshoExpanded = $state(false);
+	let regshoExpanded = $state(browser ? localStorage.getItem('regshoExpanded') === 'true' : false);
+
+	$effect(() => {
+		if (browser) localStorage.setItem('regshoExpanded', String(regshoExpanded));
+	});
 
 	let regsho = $derived(data.regsho);
 	let recommendations = $derived(data.recommendations);
