@@ -133,4 +133,23 @@ portfolio.md에서 DB로 마이그레이션할 것!
 
 ---
 
+---
+
+## ⚠️ 주의사항
+
+**절대 건드리지 말 것 (잘 작동 중):**
+- `stock_collector.py` - 데이터 수집
+- `read_briefing.py` - CLI 브리핑
+- `day_trader_scanner.py` - 단타 추천
+- `swing_long_scanner.py` - 스윙/장기 추천
+- 기존 DB 테이블들 (stock_briefing, stock_prices 등)
+- Cron jobs
+
+**새로 추가만 할 것:**
+- users, portfolio, notification_settings 테이블
+- 인증/권한 API
+- 웹 UI 페이지
+
+---
+
 *Handoff 작성: 2026-01-24*
