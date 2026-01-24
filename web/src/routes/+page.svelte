@@ -233,12 +233,12 @@
 							<div class="stock-card">
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
-										<div class="ticker-with-name">
+										<a href="/stock/{item.ticker}" class="ticker-with-name">
 											<span class="stock-ticker">{item.ticker}</span>
 											{#if item.company_name}
 												<span class="company-name">{item.company_name}</span>
 											{/if}
-										</div>
+										</a>
 										{#if regsho}
 											<RegSHOBadge ticker={item.ticker} holdingsOnList={regsho.holdings_on_list} />
 										{/if}
@@ -626,6 +626,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.1rem;
+		text-decoration: none;
+	}
+
+	.ticker-with-name:hover .stock-ticker {
+		text-decoration: underline;
 	}
 
 	.stock-ticker {

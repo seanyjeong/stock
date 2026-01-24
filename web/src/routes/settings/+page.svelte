@@ -105,7 +105,7 @@
 		<div class="info-list">
 			<div class="info-item">
 				<span class="info-label">버전</span>
-				<span class="info-value">1.5.4</span>
+				<span class="info-value">1.5.5</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">개발자</span>
