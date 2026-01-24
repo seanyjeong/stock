@@ -6,7 +6,7 @@ import logging
 import traceback
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg2.extras import RealDictCursor
@@ -422,7 +422,7 @@ async def get_recommendations():
 
 
 @app.get("/api/squeeze")
-async def get_squeeze_analysis():
+async def get_squeeze_analysis(authorization: str = Header(None)):
     """
     Get short squeeze analysis data.
     Returns squeeze scores with borrow rate, short interest, days to cover.
@@ -461,15 +461,19 @@ async def get_squeeze_analysis():
         """)
         squeeze_list = cur.fetchall()
 
-        # Get portfolio tickers
-        cur.execute(
-            "SELECT briefing_json->'portfolio' as portfolio "
-            "FROM stock_briefing ORDER BY created_at DESC LIMIT 1"
-        )
-        briefing = cur.fetchone()
+        # Get portfolio tickers from logged-in user's holdings
         portfolio_tickers = set()
-        if briefing and briefing["portfolio"]:
-            portfolio_tickers = {item["ticker"] for item in briefing["portfolio"]}
+        if authorization and authorization.startswith("Bearer "):
+            try:
+                import jwt
+                token = authorization.split(" ")[1]
+                payload = jwt.decode(token, options={"verify_signature": False})
+                user_id = int(payload.get("sub", 0))
+                if user_id:
+                    cur.execute("SELECT ticker FROM user_holdings WHERE user_id = %s", (user_id,))
+                    portfolio_tickers = {row["ticker"] for row in cur.fetchall()}
+            except Exception:
+                pass  # 토큰 없거나 만료되면 빈 set
 
         cur.close()
         conn.close()
