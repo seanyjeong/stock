@@ -186,13 +186,20 @@ ALTER TABLE users ADD COLUMN investment_style JSONB;
 
 **실행 스케줄:**
 ```bash
-# 단타 스캐너 - 미국 장 시작 전 (한국 시간 22:00)
+# 단타 스캐너 - 미국 장 시작 전 (한국 시간 22:00, 월-금)
 0 22 * * 1-5 cd ~/dailystockstory && uv run python scanners/day_scanner.py
 
-# 스윙/장기 스캐너 - 미국 장 마감 후 (한국 시간 07:00)
-0 7 * * 2-6 cd ~/dailystockstory && uv run python scanners/swing_scanner.py
-0 7 * * 2-6 cd ~/dailystockstory && uv run python scanners/long_scanner.py
+# 스윙/장기 스캐너 - 미국 애프터마켓 마감 후 (한국 시간 10:00, 화-토)
+# 애프터마켓 8pm EST = 한국 10am
+0 10 * * 2-6 cd ~/dailystockstory && uv run python scanners/swing_scanner.py
+0 10 * * 2-6 cd ~/dailystockstory && uv run python scanners/long_scanner.py
 ```
+
+**미국 휴장일 처리:**
+- [ ] 미국 주식시장 휴장일 체크 로직 추가
+- [ ] 휴장일에는 단타 추천 스킵
+- [ ] 프론트엔드: "오늘은 미국 주식시장 휴장일입니다" 표시
+- 휴장일 목록: NYSE/NASDAQ 공휴일 (신년, MLK, 대통령의날, 성금요일, 메모리얼, 독립기념일, 노동절, 추수감사절, 크리스마스)
 
 **DB 저장:**
 - 각 스캐너 결과 → `recommendations` 테이블
