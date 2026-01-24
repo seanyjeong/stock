@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Daily Stock Story</title>
+  <!-- Background -->
+  <rect width="512" height="512" fill="#0d1117"/>
+
+  <!-- Candlestick chart -->
+  <g stroke-width="8">
+    <!-- Bar 1 - Red (bearish) -->
+    <line x1="90" y1="180" x2="90" y2="280" stroke="#ef4444"/>
+    <rect x="70" y="200" width="40" height="60" fill="#ef4444"/>
+
+    <!-- Bar 2 - Green (bullish) -->
+    <line x1="170" y1="150" x2="170" y2="260" stroke="#22c55e"/>
+    <rect x="150" y="170" width="40" height="70" fill="#22c55e"/>
+
+    <!-- Bar 3 - Red (bearish) -->
+    <line x1="250" y1="160" x2="250" y2="250" stroke="#ef4444"/>
+    <rect x="230" y="180" width="40" height="50" fill="#ef4444"/>
+
+    <!-- Bar 4 - Green (bullish) -->
+    <line x1="330" y1="100" x2="330" y2="220" stroke="#22c55e"/>
+    <rect x="310" y="120" width="40" height="80" fill="#22c55e"/>
+
+    <!-- Bar 5 - Big Green (bullish) -->
+    <line x1="410" y1="60" x2="410" y2="180" stroke="#22c55e"/>
+    <rect x="390" y="80" width="40" height="80" fill="#22c55e"/>
+  </g>
+
+  <!-- Trend line -->
+  <polyline
+    points="64,320 150,280 250,240 350,160 448,80"
+    fill="none"
+    stroke="#22c55e"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-opacity="0.8"
+  />
+
+  <!-- Dollar sign watermark -->
+  <text x="420" y="450" font-family="Arial, sans-serif" font-size="120" font-weight="bold" fill="rgba(255,255,255,0.15)">$</text>
+</svg>
