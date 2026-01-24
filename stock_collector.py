@@ -372,45 +372,68 @@ async def collect_borrow_rates(page, tickers):
 
 
 # ============================================================
-# SEC EDGAR 워런트/희석 정보 (무료 API)
+# SEC EDGAR 워런트/희석 정보 (Full-Text Search API)
 # ============================================================
 
 async def collect_sec_dilution_info(tickers):
-    """SEC EDGAR에서 워런트/희석 관련 정보 수집"""
+    """SEC EDGAR Full-Text Search로 워런트/희석 관련 정보 수집"""
     import httpx
 
     dilution_data = {}
+    headers = {"User-Agent": "DailyStockStory/1.0 (contact@example.com)"}
 
     async with httpx.AsyncClient(timeout=30) as client:
         for ticker in tickers:
             try:
-                # SEC EDGAR 회사 검색
-                search_url = f"https://efts.sec.gov/LATEST/search-index?q={ticker}&dateRange=custom&startdt=2024-01-01&forms=8-K,10-K,10-Q"
-                headers = {"User-Agent": "DailyStockStory/1.0 (contact@example.com)"}
-
-                resp = await client.get(search_url, headers=headers)
-
-                # 키워드 검색: warrant, dilution, covenant, debt
-                dilution_keywords = ["warrant", "dilution", "covenant", "debt", "convertible", "exercise price"]
-                found_keywords = []
-
-                if resp.status_code == 200:
-                    text = resp.text.lower()
-                    for kw in dilution_keywords:
-                        if kw in text:
-                            found_keywords.append(kw)
-
-                dilution_data[ticker] = {
-                    "has_warrant_info": "warrant" in found_keywords or "exercise price" in found_keywords,
-                    "has_debt_covenant": "covenant" in found_keywords or "debt" in found_keywords,
-                    "dilution_risk": "dilution" in found_keywords or "convertible" in found_keywords,
-                    "keywords_found": found_keywords,
+                found_info = {
+                    "warrant_mentions": 0,
+                    "dilution_mentions": 0,
+                    "covenant_mentions": 0,
                 }
 
-                if found_keywords:
-                    print(f"  {ticker}: SEC 키워드 발견 - {', '.join(found_keywords)}")
+                # SEC Full-Text Search: 티커 + 키워드로 직접 검색
+                keywords_to_search = [
+                    ("warrant", "warrant_mentions"),
+                    ("dilution", "dilution_mentions"),
+                    ("covenant", "covenant_mentions"),
+                ]
+
+                for keyword, field in keywords_to_search:
+                    search_url = f'https://efts.sec.gov/LATEST/search-index?q="{keyword}" AND "{ticker}"&dateRange=custom&startdt=2024-01-01'
+                    resp = await client.get(search_url, headers=headers)
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        count = data.get("hits", {}).get("total", {}).get("value", 0)
+                        found_info[field] = count
+
+                # 결과 해석
+                has_warrant = found_info["warrant_mentions"] > 10  # 10건 이상이면 워런트 있음
+                has_dilution = found_info["dilution_mentions"] > 5
+                has_covenant = found_info["covenant_mentions"] > 3
+
+                dilution_data[ticker] = {
+                    "has_warrant_info": has_warrant,
+                    "has_debt_covenant": has_covenant,
+                    "dilution_risk": has_dilution,
+                    "warrant_mentions": found_info["warrant_mentions"],
+                    "dilution_mentions": found_info["dilution_mentions"],
+                    "covenant_mentions": found_info["covenant_mentions"],
+                }
+
+                # 출력
+                details = []
+                if has_warrant:
+                    details.append(f"워런트({found_info['warrant_mentions']}건)")
+                if has_dilution:
+                    details.append(f"희석({found_info['dilution_mentions']}건)")
+                if has_covenant:
+                    details.append(f"covenant({found_info['covenant_mentions']}건)")
+
+                if details:
+                    print(f"  🔍 {ticker}: {', '.join(details)}")
                 else:
-                    print(f"  {ticker}: SEC 관련 정보 없음")
+                    print(f"  {ticker}: SEC 특이사항 없음")
 
             except Exception as e:
                 print(f"  ❌ {ticker} SEC: {e}")
@@ -418,7 +441,9 @@ async def collect_sec_dilution_info(tickers):
                     "has_warrant_info": False,
                     "has_debt_covenant": False,
                     "dilution_risk": False,
-                    "keywords_found": [],
+                    "warrant_mentions": 0,
+                    "dilution_mentions": 0,
+                    "covenant_mentions": 0,
                 }
 
     return dilution_data
