@@ -126,9 +126,9 @@
 
 		try {
 			const LightweightCharts = await import('lightweight-charts');
-			const { createChart, ColorType } = LightweightCharts;
+			const { createChart, ColorType, CandlestickSeries, LineSeries } = LightweightCharts;
 
-			console.log('lightweight-charts loaded:', !!createChart);
+			console.log('lightweight-charts loaded:', !!createChart, !!CandlestickSeries);
 
 			// Clear previous charts
 			cleanupCharts();
@@ -157,7 +157,7 @@
 				autoSize: true,
 			});
 
-			const candleSeries = mainChart.addCandlestickSeries({
+			const candleSeries = mainChart.addSeries(CandlestickSeries, {
 				upColor: '#3fb950',
 				downColor: '#f85149',
 				borderUpColor: '#3fb950',
@@ -188,7 +188,7 @@
 					autoSize: true,
 				});
 
-				const rsiSeries = rsiChart.addLineSeries({
+				const rsiSeries = rsiChart.addSeries(LineSeries, {
 					color: '#a371f7',
 					lineWidth: 2,
 				});
@@ -207,7 +207,7 @@
 					autoSize: true,
 				});
 
-				const macdLine = macdChart.addLineSeries({
+				const macdLine = macdChart.addSeries(LineSeries, {
 					color: '#58a6ff',
 					lineWidth: 2,
 				});
@@ -216,7 +216,7 @@
 					value: m.macd,
 				})));
 
-				const signalLine = macdChart.addLineSeries({
+				const signalLine = macdChart.addSeries(LineSeries, {
 					color: '#f0883e',
 					lineWidth: 1,
 				});

@@ -170,7 +170,7 @@
 	async function loadAnnouncements() {
 		announcementsLoading = true;
 		try {
-			const response = await fetch(`${API_BASE}/api/announcements/all`, {
+			const response = await fetch(`${API_BASE}/api/announcements/admin`, {
 				headers: getAuthHeaders(),
 			});
 			if (response.ok) {
