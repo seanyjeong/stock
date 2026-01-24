@@ -289,13 +289,7 @@
 						<input type="checkbox" bind:checked={dataUpdateAlerts} onchange={saveSettings} />
 					</label>
 
-					<label class="toggle-item">
-						<div class="toggle-info">
-							<span class="toggle-label">가격 알림</span>
-							<span class="toggle-desc">목표가/알림가 도달 시 알림</span>
-						</div>
-						<input type="checkbox" bind:checked={priceAlerts} onchange={saveSettings} />
-					</label>
+					<!-- 가격 알림은 실시간 API 필요하여 비활성화 -->
 
 					<label class="toggle-item">
 						<div class="toggle-info">
