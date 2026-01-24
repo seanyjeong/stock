@@ -179,7 +179,7 @@
 						<div class="summary-card total">
 							<span class="summary-label">총 평가금</span>
 							<span class="summary-value">{formatCurrency(portfolio.total.value_usd)}</span>
-							<span class="summary-sub">{formatCurrency(portfolio.total.value_krw, 'KRW')}</span>
+							<span class="summary-sub">{formatCurrency(portfolio.total.value_krw, 'KRW')}{#if taxCalc} <small>(세후 {formatCurrency(taxCalc.netProfitKrw, 'KRW')})</small>{/if}</span>
 						</div>
 						<div class="summary-card {getGainClass(portfolio.total.gain_usd)}">
 							<span class="summary-label">총 수익</span>
