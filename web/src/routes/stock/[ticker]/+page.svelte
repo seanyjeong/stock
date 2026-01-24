@@ -158,7 +158,13 @@
 				wickDownColor: '#f85149',
 			});
 
-			candlestickSeries.setData(chartData.candles);
+			candlestickSeries.setData(chartData.candles.map(c => ({
+				time: toChartTime(c.time),
+				open: c.open,
+				high: c.high,
+				low: c.low,
+				close: c.close
+			})));
 
 			// Volume
 			const volumeSeries = mainChart.addHistogramSeries({
@@ -171,7 +177,7 @@
 			});
 			volumeSeries.setData(
 				chartData.candles.map((c) => ({
-					time: c.time,
+					time: toChartTime(c.time),
 					value: c.volume,
 					color: c.close >= c.open ? 'rgba(63, 185, 80, 0.3)' : 'rgba(248, 81, 73, 0.3)',
 				}))
@@ -192,7 +198,7 @@
 				color: '#a371f7',
 				lineWidth: 2,
 			});
-			rsiSeries.setData(chartData.rsi);
+			rsiSeries.setData(chartData.rsi.map(r => ({ time: toChartTime(r.time), value: r.value })));
 
 			// RSI levels (30, 70)
 			rsiSeries.createPriceLine({ price: 70, color: '#f85149', lineWidth: 1, lineStyle: 2, title: '과매수' });
@@ -214,7 +220,7 @@
 				color: '#58a6ff',
 				lineWidth: 2,
 			});
-			macdLineSeries.setData(chartData.macd.map((m) => ({ time: m.time, value: m.macd })));
+			macdLineSeries.setData(chartData.macd.map((m) => ({ time: toChartTime(m.time), value: m.macd })));
 
 			// Signal line
 			const signalSeries = macdChart.addLineSeries({
@@ -222,7 +228,7 @@
 				lineWidth: 1,
 			});
 			signalSeries.setData(
-				chartData.macd.filter((m) => m.signal !== null).map((m) => ({ time: m.time, value: m.signal }))
+				chartData.macd.filter((m) => m.signal !== null).map((m) => ({ time: toChartTime(m.time), value: m.signal }))
 			);
 
 			// Histogram
@@ -233,7 +239,7 @@
 				chartData.macd
 					.filter((m) => m.histogram !== null)
 					.map((m) => ({
-						time: m.time,
+						time: toChartTime(m.time),
 						value: m.histogram,
 						color: m.histogram! >= 0 ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)',
 					}))
@@ -255,6 +261,12 @@
 	function formatCurrency(value: number | null): string {
 		if (value === null) return '-';
 		return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+	}
+
+	// Convert Unix timestamp to YYYY-MM-DD format for lightweight-charts
+	function toChartTime(timestamp: number): string {
+		const date = new Date(timestamp * 1000);
+		return date.toISOString().split('T')[0];
 	}
 </script>
 
