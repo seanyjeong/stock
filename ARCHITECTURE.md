@@ -352,6 +352,155 @@ sudo systemctl restart stock-api
 
 ---
 
+## 스퀴즈 점수 계산 로직
+
+```
+총점 = Base Score + Bonuses - Penalties (최대 100점)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Base Score (0-60점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+├─ Short Interest (0-25점)
+│   └─ 50%+ = 25점, 비례 계산
+├─ Borrow Rate (0-20점)
+│   └─ 200%+ = 20점, 비례 계산
+└─ Days to Cover (0-15점)
+    └─ 10일+ = 15점, 비례 계산
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Squeeze Pressure Bonus (0-25점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+├─ Zero Borrow (대차 불가): +10점
+├─ Low Float (<10M): +5점
+└─ Dilution Protected (워런트/약정): +10점
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Catalyst Bonus (0-10점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─ Positive News (SEC 호재 50건+): +10점
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Risk Penalty (-15점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─ Negative News (SEC 악재 20건+): -15점
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Urgency Bonus (0-15점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+├─ Borrow Rate > 300%: +10점
+└─ Short Interest > 40%: +5점
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+등급 분류
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOT   : 60점 이상 (빨강)
+WATCH : 40-59점 (주황)
+COLD  : 40점 미만 (회색)
+```
+
+---
+
+## 프론트엔드 컴포넌트 구조
+
+```
+web/src/
+├── routes/                     # 페이지 (SvelteKit 라우팅)
+│   ├── +layout.svelte         # 공통 레이아웃 (네비게이션)
+│   ├── +page.svelte           # 홈 (포트폴리오, RegSHO Top5)
+│   ├── +page.server.ts        # 서버사이드 데이터 로드
+│   ├── login/+page.svelte     # 카카오 로그인
+│   ├── portfolio/+page.svelte # 포트폴리오 관리 + 거래 이력
+│   ├── squeeze/+page.svelte   # 스퀴즈 분석 (전체)
+│   ├── stock/[ticker]/        # 종목 상세
+│   ├── watchlist/+page.svelte # 관심 종목
+│   ├── calculator/+page.svelte# 세금 계산기
+│   ├── settings/+page.svelte  # 설정 (버전 표시)
+│   ├── notifications/         # 알림 설정
+│   ├── admin/+page.svelte     # 관리자 (공지 관리)
+│   └── onboarding/            # 온보딩 (승인 대기)
+│
+├── lib/
+│   ├── components/            # 재사용 컴포넌트
+│   │   ├── Icons.svelte       # 아이콘 (Lucide)
+│   │   ├── RegSHOBadge.svelte # RegSHO 뱃지
+│   │   ├── RecommendationTabs.svelte # 추천 탭
+│   │   └── Navigation.svelte  # 하단 네비게이션
+│   ├── types.ts               # TypeScript 타입 정의
+│   └── api.ts                 # API 헬퍼 함수
+│
+└── app.html                   # HTML 템플릿
+```
+
+### 주요 컴포넌트 역할
+
+| 컴포넌트 | 역할 |
+|----------|------|
+| `+layout.svelte` | 네비게이션, 공통 스타일, 인증 체크 |
+| `Icons.svelte` | Lucide 아이콘 래퍼 (chart, wallet, fire 등) |
+| `RegSHOBadge.svelte` | RegSHO 등재 여부 뱃지 |
+| `RecommendationTabs.svelte` | 단타/스윙/장기 탭 전환 |
+
+---
+
+## 에러 처리 / 예외 케이스
+
+### API 에러 처리
+```python
+# api/main.py
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+```
+
+### 프론트엔드 에러 처리
+```typescript
+// 401 Unauthorized → 로그인 페이지로 리다이렉트
+if (response.status === 401) {
+    localStorage.removeItem('access_token');
+    goto('/login');
+}
+
+// API 실패 → 에러 메시지 표시
+if (!response.ok) {
+    error = '데이터를 불러올 수 없습니다';
+}
+```
+
+### 예외 케이스 처리
+
+| 케이스 | 처리 |
+|--------|------|
+| 토큰 만료 | 401 → 자동 로그아웃 → 로그인 페이지 |
+| API 서버 다운 | 로딩 실패 메시지 + 재시도 버튼 |
+| 승인 대기 유저 | 온보딩 페이지로 리다이렉트 |
+| 데이터 없음 | "보유 종목이 없습니다" 안내 |
+| 네트워크 오류 | try/catch → 에러 상태 표시 |
+| 잘못된 티커 | 404 → "종목을 찾을 수 없습니다" |
+
+### 데이터 수집 예외
+```python
+# stock_collector.py
+try:
+    ticker = yf.Ticker(symbol)
+    info = ticker.info
+except Exception as e:
+    logger.error(f"Failed to fetch {symbol}: {e}")
+    continue  # 다음 종목으로 건너뛰기
+```
+
+---
+
 ## 현재 버전
 - **프론트엔드**: v1.9.2
 - **문서 업데이트**: 2026-01-25
