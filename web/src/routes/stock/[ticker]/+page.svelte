@@ -51,9 +51,10 @@
 	let mainChartContainer: HTMLDivElement;
 	let rsiChartContainer: HTMLDivElement;
 	let macdChartContainer: HTMLDivElement;
-	let mainChart: any;
-	let rsiChart: any;
-	let macdChart: any;
+	let mainChart: any = $state(null);
+	let rsiChart: any = $state(null);
+	let macdChart: any = $state(null);
+	let chartError = $state('');
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -102,14 +103,17 @@
 	async function renderCharts() {
 		if (!chartData || !browser) return;
 
-		// Wait for DOM to be fully ready (double RAF for layout)
-		await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+		try {
+			// Wait for DOM to be fully ready (double RAF for layout)
+			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-		// Wait a bit more for container to have proper dimensions
-		await new Promise(resolve => setTimeout(resolve, 100));
+			// Wait a bit more for container to have proper dimensions
+			await new Promise(resolve => setTimeout(resolve, 100));
 
-		// Dynamically import lightweight-charts
-		const { createChart, ColorType, CrosshairMode } = await import('lightweight-charts');
+			// Dynamically import lightweight-charts
+			const { createChart, ColorType, CrosshairMode } = await import('lightweight-charts');
+
+			chartError = '';
 
 		// Clear previous charts
 		if (mainChart) mainChart.remove();
@@ -237,6 +241,10 @@
 
 			macdChart.timeScale().fitContent();
 		}
+		} catch (e) {
+			chartError = e instanceof Error ? e.message : '차트 렌더링 오류';
+			console.error('Chart render error:', e);
+		}
 	}
 
 	function handlePeriodChange(period: string) {
@@ -281,6 +289,10 @@
 		<div class="error-box">{error}</div>
 	{/if}
 
+	{#if chartError}
+		<div class="error-box">차트 오류: {chartError}</div>
+	{/if}
+
 	{#if isLoading}
 		<div class="loading">차트 로딩 중...</div>
 	{:else if chartData}
@@ -308,8 +320,12 @@
 
 		<!-- Charts -->
 		<div class="chart-section">
-			<div class="chart-title">캔들스틱</div>
-			<div class="chart-container" bind:this={mainChartContainer}></div>
+			<div class="chart-title">캔들스틱 ({chartData.candles.length}개)</div>
+			<div class="chart-container" bind:this={mainChartContainer}>
+				{#if !mainChart}
+					<div class="chart-placeholder">차트 렌더링 중...</div>
+				{/if}
+			</div>
 		</div>
 
 		<div class="chart-section">
@@ -498,6 +514,16 @@
 		overflow: hidden;
 		width: 100%;
 		min-height: 300px;
+		position: relative;
+	}
+
+	.chart-placeholder {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		color: #8b949e;
+		font-size: 0.85rem;
 	}
 
 	.chart-container.rsi-chart {
