@@ -15,6 +15,18 @@
 		premarket_price: number | null;
 		target_diff_pct: number | null;
 		created_at: string | null;
+		rsi?: number | null;
+		rsi_signal?: string | null;
+		macd_trend?: string | null;
+	}
+
+	interface SelectedTickerInfo {
+		symbol: string;
+		name: string;
+		current_price: number | null;
+		rsi: number | null;
+		rsi_signal: string | null;
+		macd_trend: string | null;
 	}
 
 	let watchlist = $state<WatchlistItem[]>([]);
@@ -28,6 +40,8 @@
 	let targetPrice = $state('');
 	let alertPrice = $state('');
 	let isSubmitting = $state(false);
+	let selectedInfo = $state<SelectedTickerInfo | null>(null);
+	let isLoadingInfo = $state(false);
 
 	// Search
 	let searchQuery = $state('');
@@ -109,10 +123,33 @@
 		}, 300);
 	}
 
-	function selectTicker(symbol: string) {
+	async function selectTicker(symbol: string, name: string) {
 		ticker = symbol;
 		searchQuery = symbol;
 		searchResults = [];
+		selectedInfo = null;
+		isLoadingInfo = true;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/indicators/${symbol}`, {
+				headers: getAuthHeaders(),
+			});
+			if (response.ok) {
+				const data = await response.json();
+				selectedInfo = {
+					symbol,
+					name,
+					current_price: data.current_price,
+					rsi: data.rsi?.value,
+					rsi_signal: data.rsi?.signal,
+					macd_trend: data.macd?.trend
+				};
+			}
+		} catch {
+			selectedInfo = { symbol, name, current_price: null, rsi: null, rsi_signal: null, macd_trend: null };
+		} finally {
+			isLoadingInfo = false;
+		}
 	}
 
 	async function addToWatchlist() {
@@ -218,7 +255,7 @@
 				{#if searchResults.length > 0}
 					<div class="search-results">
 						{#each searchResults as result}
-							<button class="search-item" onclick={() => selectTicker(result.symbol)}>
+							<button class="search-item" onclick={() => selectTicker(result.symbol, result.name)}>
 								<span class="symbol">{result.symbol}</span>
 								<span class="name">{result.name}</span>
 							</button>
@@ -227,8 +264,30 @@
 				{/if}
 			</div>
 			{#if ticker}
-				<div class="selected-ticker">
-					선택: <strong>{ticker}</strong>
+				<div class="selected-ticker-card">
+					<div class="ticker-header">
+						<strong class="symbol">{ticker}</strong>
+						{#if isLoadingInfo}
+							<span class="loading-text">로딩...</span>
+						{:else if selectedInfo}
+							<span class="current-price">{formatCurrency(selectedInfo.current_price)}</span>
+						{/if}
+					</div>
+					{#if selectedInfo && !isLoadingInfo}
+						<div class="ticker-indicators">
+							<div class="indicator" title="상대강도지수: 70이상 과매수(매도고려), 30이하 과매도(매수고려)">
+								<span class="label">RSI</span>
+								<span class="value" class:overbought={selectedInfo.rsi && selectedInfo.rsi >= 70} class:oversold={selectedInfo.rsi && selectedInfo.rsi <= 30}>
+									{selectedInfo.rsi ?? '-'}
+								</span>
+								<span class="signal">{selectedInfo.rsi_signal ?? ''}</span>
+							</div>
+							<div class="indicator" title="이동평균수렴확산: 추세 방향과 전환점 파악">
+								<span class="label">MACD</span>
+								<span class="value">{selectedInfo.macd_trend ?? '-'}</span>
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 			<div class="form-row">
@@ -289,7 +348,10 @@
 							<div class="card-note">{item.note}</div>
 						{/if}
 
-						<button class="btn-delete" onclick={() => removeFromWatchlist(item)}>삭제</button>
+						<div class="card-actions">
+							<a href="/stock/{item.ticker}" class="btn-chart">차트 보기</a>
+							<button class="btn-delete" onclick={() => removeFromWatchlist(item)}>삭제</button>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -445,17 +507,69 @@
 		text-overflow: ellipsis;
 	}
 
-	.selected-ticker {
+	.selected-ticker-card {
 		background: rgba(88, 166, 255, 0.1);
 		border: 1px solid #58a6ff;
-		padding: 0.5rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.85rem;
+		padding: 0.75rem;
+		border-radius: 8px;
 		margin-bottom: 0.75rem;
 	}
 
-	.selected-ticker strong {
+	.selected-ticker-card .ticker-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.selected-ticker-card .symbol {
 		color: #58a6ff;
+		font-size: 1.1rem;
+	}
+
+	.selected-ticker-card .current-price {
+		font-size: 1.1rem;
+		font-weight: 600;
+	}
+
+	.selected-ticker-card .loading-text {
+		color: #8b949e;
+		font-size: 0.8rem;
+	}
+
+	.ticker-indicators {
+		display: flex;
+		gap: 1rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid rgba(88, 166, 255, 0.3);
+	}
+
+	.ticker-indicators .indicator {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.8rem;
+	}
+
+	.ticker-indicators .label {
+		color: #8b949e;
+	}
+
+	.ticker-indicators .value {
+		font-weight: 600;
+	}
+
+	.ticker-indicators .value.overbought {
+		color: #f85149;
+	}
+
+	.ticker-indicators .value.oversold {
+		color: #3fb950;
+	}
+
+	.ticker-indicators .signal {
+		font-size: 0.7rem;
+		color: #8b949e;
 	}
 
 	.btn-submit {
@@ -480,7 +594,7 @@
 	}
 
 	.watchlist-card {
-		position: relative;
+		/* card styles inherited from .card */
 	}
 
 	.card-header {
@@ -558,15 +672,36 @@
 		margin-top: 0.5rem;
 	}
 
+	.card-actions {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid #21262d;
+	}
+
+	.btn-chart {
+		flex: 1;
+		padding: 0.5rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: #58a6ff;
+		text-decoration: none;
+		text-align: center;
+	}
+
+	.btn-chart:hover {
+		background: #30363d;
+	}
+
 	.btn-delete {
-		position: absolute;
-		top: 0.75rem;
-		right: 0.75rem;
-		padding: 0.25rem 0.5rem;
+		padding: 0.5rem 0.75rem;
 		background: transparent;
 		border: 1px solid #30363d;
-		border-radius: 4px;
-		font-size: 0.65rem;
+		border-radius: 6px;
+		font-size: 0.75rem;
 		color: #8b949e;
 		cursor: pointer;
 	}

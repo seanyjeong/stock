@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
@@ -89,6 +89,8 @@
 			}
 
 			chartData = await response.json();
+			// Wait for DOM update before rendering charts
+			await tick();
 			await renderCharts();
 		} catch (e) {
 			error = e instanceof Error ? e.message : '오류가 발생했습니다';
