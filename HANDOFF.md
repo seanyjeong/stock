@@ -1,119 +1,80 @@
-# 달러농장 핸드오프
+# 숏스퀴즈 분석 v1.8.0 핸드오프
 
-**작성일**: 2026-01-25
-**버전**: v1.6.0
+## 완료된 작업
 
----
+### v1.8.0 주요 기능
+1. **Zero Borrow 감지** - shortablestocks.com 스크래핑 (stealth 모드)
+2. **SEC EDGAR Full-Text Search** - 워런트/희석/covenant 언급 횟수 분석
+3. **v2 스코어 로직** - Base Score + Bonus 시스템
+4. **프론트엔드 /squeeze 페이지** - 점수 순 정렬, 필터, 지표 표시
 
-## 바로 할 일 (다음 세션)
+### BNAI 테스트 결과
+- **v1 점수:** 7.7점 (COLD)
+- **v2 점수:** 69.8점 (HOT!) 🔥
 
-### 종합 스퀴즈 스코어 v2 구현
+### 스코어 구성
+```
+Base Score (0-60):
+├─ Short Interest (0-25): 50%+ = 만점
+├─ Borrow Rate (0-20): 200%+ = 만점
+└─ Days to Cover (0-15): 10일+ = 만점
 
-**목표:** 블로거 스타일의 정확한 분석
+Squeeze Pressure Bonus (0-25):
+├─ Zero Borrow (available=0): +10점
+├─ Low Float (<10M): +5점
+└─ Warrant/Covenant: +10점
 
-**필요한 데이터:**
-| 데이터 | 소스 | 방법 |
-|--------|------|------|
-| Borrow Rate | Fintel 무료 부분 확인 | 스크래핑 |
-| 워런트 정보 | SEC EDGAR 8-K | API/스크래핑 |
-| 부채/재무상황 | SEC 10-Q | API |
-| 주식발행 제한 | SEC 공시 | 파싱 |
-
-**BNAI 예시:**
-- 워런트 $15 있지만 행사 불가 (회사 부채 때문)
-- 주식 발행 제한 = 공매도자 청산 압박 증가
-- 현재 스코어 35.7 (DTC 낮아서) → 워런트/부채 반영하면 더 높아야 함
-
-### 구현 순서
-
-```bash
-1. SEC EDGAR API 연동
-   - https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=BNAI&type=8-K
-   - 8-K (중요 공시) 수집
-   - 10-Q (분기 재무제표) 파싱
-
-2. Fintel 무료 데이터 확인
-   - https://fintel.io/ss/us/bnai
-   - Borrow Rate 스크래핑 가능한지 테스트
-
-3. 종합 스코어 계산 로직
-   score = (
-     short_interest * 0.25 +
-     days_to_cover * 0.15 +
-     regsho_days * 0.15 +
-     borrow_rate * 0.25 +
-     warrant_pressure * 0.20  # 워런트/부채 상황
-   )
-
-4. 프론트 UI 개선
-   - 각 지표별 상세 표시
-   - 왜 스퀴즈 확률이 높은지 설명
+Urgency Bonus (0-15):
+├─ BR > 300%: +10점
+└─ SI > 40%: +5점
 ```
 
----
+## 파일 변경
 
-## 이번 세션 완료 (v1.6.0)
+### Backend
+- `stock_collector.py` - v2 로직 추가
+  - `collect_borrow_rates()` - shortablestocks 스크래핑
+  - `collect_sec_dilution_info()` - SEC Full-Text Search
+  - `calculate_squeeze_score_v2()` - 새 스코어 계산
+- `api/main.py` - /api/squeeze 엔드포인트 새 컬럼 추가
 
-### 숏스퀴즈 분석 v1
-- `squeeze_data` 테이블 생성
-- yfinance에서 Short Interest, Days to Cover 수집
-- `/api/squeeze` API 엔드포인트
-- 포트폴리오 카드에 숏 지표 표시 (SI%, RegSHO일, 스퀴즈 점수)
-- RegSHO 연속등재일 추적 개선 (등재 빠지면 리셋)
-- RegSHO 설명 추가: "5일 연속 결제 실패 종목"
+### Frontend
+- `web/src/routes/squeeze/+page.svelte` - 신규 페이지
+- `web/src/lib/components/BottomNav.svelte` - 스퀴즈 메뉴 추가
+- `web/src/lib/components/Icons.svelte` - fire 아이콘 추가
 
-### 파일 변경
-- `stock_collector.py` - collect_squeeze_data(), RegSHO first_seen_date 로직
-- `api/main.py` - /api/squeeze 엔드포인트
-- `web/src/routes/+page.svelte` - 숏스퀴즈 UI
-- `web/src/lib/types.ts` - SqueezeResponse 타입
-- `web/src/routes/+page.server.ts` - squeeze 데이터 fetch
-
----
-
-## 테스트 명령어
-
-```bash
-# 수집기 실행
-cd ~/dailystockstory && uv run python stock_collector.py
-
-# squeeze 데이터 확인
-docker exec continuous-claude-postgres psql -U claude -d continuous_claude -c \
-  "SELECT * FROM squeeze_data ORDER BY squeeze_score DESC LIMIT 10;"
-
-# RegSHO 연속등재일 확인
-docker exec continuous-claude-postgres psql -U claude -d continuous_claude -c \
-  "SELECT ticker, first_seen_date, (CURRENT_DATE - first_seen_date) as days
-   FROM regsho_list WHERE collected_date = (SELECT MAX(collected_date) FROM regsho_list)
-   ORDER BY days DESC LIMIT 10;"
-
-# 빌드
-cd ~/dailystockstory/web && npm run build
+### DB 스키마
+```sql
+-- squeeze_data 테이블 새 컬럼
+available_shares BIGINT
+float_shares BIGINT
+dilution_protected BOOLEAN
 ```
 
----
+## Cron 설정
+```bash
+# 매일 오전 9시 KST
+0 9 * * * cd /home/sean/dailystockstory && /home/sean/.local/bin/uv run python stock_collector.py
+```
 
-## 현재 DB squeeze_data
+## API 서버 재시작 필요
+```bash
+sudo systemctl restart [서비스명]
+```
 
-| 티커 | SI | DTC | Score | 비고 |
-|------|-----|-----|-------|------|
-| HIMS | 36.5% | 5.4일 | 65.4 | 높음 |
-| GLSI | 24.3% | 2.4일 | 38.9 | |
-| BNAI | 29.2% | 0.16일 | 35.7 | DTC 낮아서 점수 낮음 |
+## 다음 작업 (TODO)
+- [ ] Sentiment 분석 추가 (Stocktwits/ORTEX - 현재 차단됨)
+- [ ] FTD 데이터 추가 (SEC에서 가져오기)
+- [ ] 알림 기능 (스코어 급등 시 푸시)
 
-**BNAI 문제:** DTC 0.16일 = 거래량 많아서 점수 낮음
-→ 워런트/부채 상황 반영해야 정확한 스코어 나옴
+## 의존성
+```
+playwright-stealth>=2.0.1  # 봇 감지 우회
+httpx>=0.28.1              # SEC API 호출
+```
 
----
-
-## 배포 현황
-
-| 항목 | URL |
-|------|-----|
-| GitHub | https://github.com/seanyjeong/stock |
-| Vercel | https://stock-six-phi.vercel.app |
-| API | https://stock-api.sean8320.dedyn.io |
-
----
-
-*Handoff: 2026-01-25*
+## 커밋 히스토리
+- `6a80378` chore: bump version to v1.8.0
+- `4b9a04e` feat: 숏스퀴즈 분석 페이지 추가 (프론트엔드)
+- `5ab10f7` feat: 숏스퀴즈 v1.8.0 - SEC 워런트/희석 분석 완성
+- `548f148` feat: 숏스퀴즈 v1.7.0 - Zero Borrow 감지
