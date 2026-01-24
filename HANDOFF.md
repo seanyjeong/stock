@@ -90,6 +90,21 @@ git push  # → Vercel 자동 배포
 
 ---
 
+## 포트폴리오 데이터 (보존!)
+
+```
+portfolio.md에서 DB로 마이그레이션할 것!
+
+| 티커 | 수량 | 평단 |
+|------|------|------|
+| BNAI | 464 | $9.55 |
+| GLSI | 67 | $25.22 |
+```
+
+**절대 삭제 금지**: `portfolio.md`
+
+---
+
 ## 참고 문서
 
 | 문서 | 경로 |
@@ -97,6 +112,7 @@ git push  # → Vercel 자동 배포
 | PRD | `docs/PRD_daily-stock-story.md` |
 | v1.1 계획 | `docs/plans/PLAN_v1.1-features.md` |
 | 카카오 로그인 참고 | `~/mprojects/` |
+| 포트폴리오 원본 | `portfolio.md` (DB 마이그레이션 시 사용)
 
 ---
 
