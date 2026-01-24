@@ -62,9 +62,13 @@ dilution_protected BOOLEAN
 sudo systemctl restart [서비스명]
 ```
 
-## 다음 작업 (TODO)
-- [ ] Sentiment 분석 추가 (Stocktwits/ORTEX - 현재 차단됨)
+## 다음 작업 (TODO) - 우선순위 높음!
+- [ ] **뉴스 호재 점수 추가** - SEC 8-K/PR Newswire에서 긍정 키워드 감지
+  - 키워드: deal, partnership, contract, agreement, revenue, profit
+  - 컬럼 추가: `has_positive_news`, `news_score`
+  - 스코어에 +5~10점 보너스
 - [ ] FTD 데이터 추가 (SEC에서 가져오기)
+- [ ] Sentiment 분석 추가 (Stocktwits/ORTEX - 현재 차단됨)
 - [ ] 알림 기능 (스코어 급등 시 푸시)
 
 ## 의존성
