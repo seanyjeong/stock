@@ -260,7 +260,7 @@
 					<div class="watchlist-card card">
 						<div class="card-header">
 							<div class="ticker-info">
-								<span class="ticker">{item.ticker}</span>
+								<a href="/stock/{item.ticker}" class="ticker">{item.ticker}</a>
 								{#if item.target_diff_pct !== null}
 									<span class="target-diff" class:positive={item.target_diff_pct > 0} class:negative={item.target_diff_pct < 0}>
 										목표 {formatPct(item.target_diff_pct)}
@@ -500,6 +500,11 @@
 		font-weight: 700;
 		font-size: 1.1rem;
 		color: #58a6ff;
+		text-decoration: none;
+	}
+
+	.ticker:hover {
+		text-decoration: underline;
 	}
 
 	.target-diff {

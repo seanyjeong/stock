@@ -19,6 +19,7 @@ from api.watchlist import router as watchlist_router
 from api.notifications import router as notifications_router
 from api.announcements import router as announcements_router
 from api.indicators import router as indicators_router
+from api.chart import router as chart_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ app.include_router(watchlist_router)
 app.include_router(notifications_router)
 app.include_router(announcements_router)
 app.include_router(indicators_router)
+app.include_router(chart_router)
 
 
 @app.exception_handler(HTTPException)

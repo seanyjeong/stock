@@ -340,7 +340,7 @@
 				{#each holdings as holding}
 					<div class="holding-card card">
 						<div class="holding-header">
-							<span class="ticker">{holding.ticker}</span>
+							<a href="/stock/{holding.ticker}" class="ticker">{holding.ticker}</a>
 							<span class="gain {getGainClass(holding.gain)}">
 								{formatCurrency(holding.gain)} ({formatPercent(holding.gain_pct)})
 							</span>
@@ -697,6 +697,11 @@
 		font-size: 1.1rem;
 		font-weight: 700;
 		color: #58a6ff;
+		text-decoration: none;
+	}
+
+	.holding-header .ticker:hover {
+		text-decoration: underline;
 	}
 
 	.holding-header .gain {
