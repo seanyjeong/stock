@@ -6,6 +6,7 @@
 	interface WatchlistItem {
 		id: number;
 		ticker: string;
+		company_name?: string | null;
 		note: string | null;
 		target_price: number | null;
 		alert_price: number | null;
@@ -319,7 +320,12 @@
 					<div class="watchlist-card card">
 						<div class="card-header">
 							<div class="ticker-info">
-								<a href="/stock/{item.ticker}" class="ticker">{item.ticker}</a>
+								<div class="ticker-with-name">
+									<a href="/stock/{item.ticker}" class="ticker">{item.ticker}</a>
+									{#if item.company_name}
+										<span class="company-name">{item.company_name}</span>
+									{/if}
+								</div>
 								{#if item.target_diff_pct !== null}
 									<span class="target-diff" class:positive={item.target_diff_pct > 0} class:negative={item.target_diff_pct < 0}>
 										목표 {formatPct(item.target_diff_pct)}
@@ -610,11 +616,26 @@
 		gap: 0.5rem;
 	}
 
+	.ticker-with-name {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
 	.ticker {
 		font-weight: 700;
 		font-size: 1.1rem;
 		color: #58a6ff;
 		text-decoration: none;
+	}
+
+	.company-name {
+		font-size: 0.7rem;
+		color: #8b949e;
+		max-width: 140px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.ticker:hover {

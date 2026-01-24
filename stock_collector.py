@@ -107,6 +107,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS ticker_info (
+            ticker VARCHAR(10) PRIMARY KEY,
+            company_name TEXT,
+            sector TEXT,
+            industry TEXT,
+            updated_at TIMESTAMP DEFAULT NOW()
+        );
+
         CREATE INDEX IF NOT EXISTS idx_stock_prices_ticker ON stock_prices(ticker, collected_at DESC);
         CREATE INDEX IF NOT EXISTS idx_blog_posts_new ON blog_posts(is_new, collected_at DESC);
     """)
@@ -133,6 +141,46 @@ def mark_posts_as_read():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE blog_posts SET is_new = FALSE WHERE is_new = TRUE")
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def update_ticker_info(tickers):
+    """티커 정보(회사명) 업데이트 - yfinance 사용"""
+    import yfinance as yf
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    for ticker in tickers:
+        try:
+            # 이미 있는지 확인
+            cur.execute("SELECT ticker FROM ticker_info WHERE ticker = %s", (ticker,))
+            if cur.fetchone():
+                continue  # 이미 있으면 스킵
+
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            company_name = info.get("shortName") or info.get("longName") or ticker
+            sector = info.get("sector")
+            industry = info.get("industry")
+
+            cur.execute("""
+                INSERT INTO ticker_info (ticker, company_name, sector, industry, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (ticker) DO UPDATE SET
+                    company_name = EXCLUDED.company_name,
+                    sector = EXCLUDED.sector,
+                    industry = EXCLUDED.industry,
+                    updated_at = NOW()
+            """, (ticker, company_name, sector, industry))
+
+            print(f"  ✅ {ticker}: {company_name}")
+        except Exception as e:
+            print(f"  ❌ {ticker}: {e}")
+
     conn.commit()
     cur.close()
     conn.close()
@@ -579,6 +627,10 @@ async def main():
     # DB 저장
     print("\n💾 DB 저장...")
     save_to_db(prices, regSHO, exchange_rate, blog_posts, blogger_tickers)
+
+    # 티커 정보(회사명) 업데이트
+    print("\n📛 티커 정보 업데이트...")
+    update_ticker_info(tickers)
 
     # 요약
     print("\n" + "=" * 60)

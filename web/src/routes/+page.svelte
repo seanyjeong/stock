@@ -13,6 +13,7 @@
 	interface PortfolioItem {
 		id: number;
 		ticker: string;
+		company_name?: string;
 		shares: number;
 		avg_cost: number;
 		current_price: number;
@@ -232,7 +233,12 @@
 							<div class="stock-card">
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
-										<span class="stock-ticker">{item.ticker}</span>
+										<div class="ticker-with-name">
+											<span class="stock-ticker">{item.ticker}</span>
+											{#if item.company_name}
+												<span class="company-name">{item.company_name}</span>
+											{/if}
+										</div>
 										{#if regsho}
 											<RegSHOBadge ticker={item.ticker} holdingsOnList={regsho.holdings_on_list} />
 										{/if}
@@ -616,10 +622,25 @@
 		flex-wrap: wrap;
 	}
 
+	.ticker-with-name {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
 	.stock-ticker {
 		font-size: 1.1rem;
 		font-weight: 700;
 		color: #58a6ff;
+	}
+
+	.company-name {
+		font-size: 0.7rem;
+		color: #8b949e;
+		max-width: 150px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.market-badge {

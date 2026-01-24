@@ -90,6 +90,12 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
         """, (tickers,))
         prices = {row["ticker"]: row for row in cur.fetchall()}
 
+        # 회사명 조회
+        cur.execute("""
+            SELECT ticker, company_name FROM ticker_info WHERE ticker = ANY(%s)
+        """, (tickers,))
+        company_names = {row["ticker"]: row["company_name"] for row in cur.fetchall()}
+
         # DB에 없는 종목은 yfinance로 실시간 조회
         missing_tickers = [t for t in tickers if t not in prices]
         if missing_tickers:
@@ -132,6 +138,7 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
             result.append({
                 "id": item["id"],
                 "ticker": ticker,
+                "company_name": company_names.get(ticker),
                 "note": item["note"],
                 "target_price": float(item["target_price"]) if item["target_price"] else None,
                 "alert_price": float(item["alert_price"]) if item["alert_price"] else None,

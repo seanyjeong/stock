@@ -28,6 +28,7 @@
 
 	interface ChartData {
 		ticker: string;
+		company_name?: string;
 		current_price: number;
 		period: string;
 		candles: Candle[];
@@ -279,7 +280,12 @@
 
 	<div class="header">
 		<div class="ticker-info">
-			<h1>{ticker}</h1>
+			<div class="ticker-with-name">
+				<h1>{ticker}</h1>
+				{#if chartData?.company_name}
+					<span class="company-name">{chartData.company_name}</span>
+				{/if}
+			</div>
 			{#if chartData}
 				<span class="current-price">{formatCurrency(chartData.current_price)}</span>
 			{/if}
@@ -391,10 +397,21 @@
 		gap: 0.75rem;
 	}
 
+	.ticker-with-name {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
 	h1 {
 		font-size: 1.5rem;
 		margin: 0;
 		color: #58a6ff;
+	}
+
+	.company-name {
+		font-size: 0.75rem;
+		color: #8b949e;
 	}
 
 	.current-price {

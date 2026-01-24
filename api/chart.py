@@ -6,8 +6,24 @@ from fastapi import APIRouter, HTTPException
 import yfinance as yf
 import pandas as pd
 from .indicators import calculate_rsi, calculate_macd
+from db import get_db
+from psycopg2.extras import RealDictCursor
 
 router = APIRouter(prefix="/api/chart", tags=["chart"])
+
+
+def get_company_name(ticker: str) -> str | None:
+    """DB에서 회사명 조회"""
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT company_name FROM ticker_info WHERE ticker = %s", (ticker.upper(),))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row["company_name"] if row else None
+    except:
+        return None
 
 
 @router.get("/{ticker}")
@@ -81,6 +97,7 @@ async def get_chart_data(ticker: str, period: str = "3mo", interval: str = "1d")
 
         return {
             "ticker": ticker.upper(),
+            "company_name": get_company_name(ticker),
             "current_price": current_price,
             "period": period,
             "interval": interval,
