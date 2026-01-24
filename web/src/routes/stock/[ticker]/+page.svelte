@@ -4,7 +4,6 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 
-	// Types
 	interface Candle {
 		time: number;
 		open: number;
@@ -14,26 +13,14 @@
 		volume: number;
 	}
 
-	interface RsiPoint {
-		time: number;
-		value: number;
-	}
-
-	interface MacdPoint {
-		time: number;
-		macd: number;
-		signal: number | null;
-		histogram: number | null;
-	}
-
 	interface ChartData {
 		ticker: string;
 		company_name?: string;
 		current_price: number;
 		period: string;
 		candles: Candle[];
-		rsi: RsiPoint[];
-		macd: MacdPoint[];
+		rsi: Array<{ time: number; value: number }>;
+		macd: Array<{ time: number; macd: number; signal: number | null; histogram: number | null }>;
 		summary: {
 			rsi: number | null;
 			rsi_signal: string;
@@ -47,15 +34,17 @@
 	let isLoading = $state(true);
 	let error = $state('');
 	let selectedPeriod = $state('3mo');
+	let chartRendered = $state(false);
 
-	// Chart instances
-	let mainChartContainer: HTMLDivElement;
-	let rsiChartContainer: HTMLDivElement;
-	let macdChartContainer: HTMLDivElement;
-	let mainChart: any = $state(null);
-	let rsiChart: any = $state(null);
-	let macdChart: any = $state(null);
-	let chartError = $state('');
+	// Chart containers
+	let mainChartContainer: HTMLDivElement | undefined = $state();
+	let rsiChartContainer: HTMLDivElement | undefined = $state();
+	let macdChartContainer: HTMLDivElement | undefined = $state();
+
+	// Chart instances (stored outside of reactivity)
+	let mainChart: any = null;
+	let rsiChart: any = null;
+	let macdChart: any = null;
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -71,9 +60,25 @@
 	});
 
 	onDestroy(() => {
-		if (mainChart) mainChart.remove();
-		if (rsiChart) rsiChart.remove();
-		if (macdChart) macdChart.remove();
+		cleanupCharts();
+	});
+
+	function cleanupCharts() {
+		if (mainChart) { mainChart.remove(); mainChart = null; }
+		if (rsiChart) { rsiChart.remove(); rsiChart = null; }
+		if (macdChart) { macdChart.remove(); macdChart = null; }
+	}
+
+	// Use $effect to render charts when data AND container are ready
+	$effect(() => {
+		if (chartData && mainChartContainer && browser && !isLoading) {
+			// Use requestAnimationFrame to ensure DOM is painted
+			requestAnimationFrame(() => {
+				requestAnimationFrame(() => {
+					renderCharts();
+				});
+			});
+		}
 	});
 
 	async function loadChartData() {
@@ -81,6 +86,8 @@
 
 		isLoading = true;
 		error = '';
+		chartRendered = false;
+		cleanupCharts();
 
 		try {
 			const response = await fetch(`${API_BASE}/api/chart/${ticker}?period=${selectedPeriod}`);
@@ -91,9 +98,6 @@
 			}
 
 			chartData = await response.json();
-			// Wait for DOM update before rendering charts
-			await tick();
-			await renderCharts();
 		} catch (e) {
 			error = e instanceof Error ? e.message : '오류가 발생했습니다';
 		} finally {
@@ -101,56 +105,59 @@
 		}
 	}
 
+	function toChartTime(timestamp: number): string {
+		const date = new Date(timestamp * 1000);
+		return date.toISOString().split('T')[0];
+	}
+
 	async function renderCharts() {
-		if (!chartData || !browser) return;
+		if (!chartData || !browser || !mainChartContainer) {
+			console.log('Cannot render: missing data or container', {
+				hasData: !!chartData,
+				browser,
+				hasContainer: !!mainChartContainer
+			});
+			return;
+		}
+
+		// Log container dimensions for debugging
+		console.log('Container dimensions:', mainChartContainer.clientWidth, mainChartContainer.clientHeight);
+		console.log('Container offsetWidth:', mainChartContainer.offsetWidth);
 
 		try {
-			// Wait for DOM to be fully ready (double RAF for layout)
-			await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			const LightweightCharts = await import('lightweight-charts');
+			const { createChart, ColorType } = LightweightCharts;
 
-			// Wait a bit more for container to have proper dimensions
-			await new Promise(resolve => setTimeout(resolve, 100));
+			console.log('lightweight-charts loaded:', !!createChart);
 
-			// Dynamically import lightweight-charts
-			const { createChart, ColorType, CrosshairMode } = await import('lightweight-charts');
+			// Clear previous charts
+			cleanupCharts();
 
-			chartError = '';
+			const chartOptions = {
+				layout: {
+					background: { type: ColorType.Solid, color: '#0d1117' },
+					textColor: '#8b949e',
+				},
+				grid: {
+					vertLines: { color: '#21262d' },
+					horzLines: { color: '#21262d' },
+				},
+				timeScale: {
+					borderColor: '#30363d',
+				},
+				rightPriceScale: {
+					borderColor: '#30363d',
+				},
+			};
 
-		// Clear previous charts
-		if (mainChart) mainChart.remove();
-		if (rsiChart) rsiChart.remove();
-		if (macdChart) macdChart.remove();
-
-		const chartOptions = {
-			layout: {
-				background: { type: ColorType.Solid, color: '#0d1117' },
-				textColor: '#8b949e',
-			},
-			grid: {
-				vertLines: { color: '#21262d' },
-				horzLines: { color: '#21262d' },
-			},
-			crosshair: {
-				mode: CrosshairMode.Normal,
-			},
-			timeScale: {
-				borderColor: '#30363d',
-				timeVisible: true,
-			},
-			rightPriceScale: {
-				borderColor: '#30363d',
-			},
-		};
-
-		// Main candlestick chart
-		if (mainChartContainer) {
+			// Main chart
+			console.log('Creating main chart...');
 			mainChart = createChart(mainChartContainer, {
 				...chartOptions,
 				autoSize: true,
 			});
-			mainChart.applyOptions({ height: 300 });
 
-			const candlestickSeries = mainChart.addCandlestickSeries({
+			const candleSeries = mainChart.addCandlestickSeries({
 				upColor: '#3fb950',
 				downColor: '#f85149',
 				borderUpColor: '#3fb950',
@@ -159,98 +166,74 @@
 				wickDownColor: '#f85149',
 			});
 
-			candlestickSeries.setData(chartData.candles.map(c => ({
+			const candleData = chartData.candles.map(c => ({
 				time: toChartTime(c.time),
 				open: c.open,
 				high: c.high,
 				low: c.low,
-				close: c.close
-			})));
+				close: c.close,
+			}));
 
-			// Volume
-			const volumeSeries = mainChart.addHistogramSeries({
-				color: '#58a6ff',
-				priceFormat: { type: 'volume' },
-				priceScaleId: '',
-			});
-			volumeSeries.priceScale().applyOptions({
-				scaleMargins: { top: 0.8, bottom: 0 },
-			});
-			volumeSeries.setData(
-				chartData.candles.map((c) => ({
-					time: toChartTime(c.time),
-					value: c.volume,
-					color: c.close >= c.open ? 'rgba(63, 185, 80, 0.3)' : 'rgba(248, 81, 73, 0.3)',
-				}))
-			);
+			console.log('Setting candle data, count:', candleData.length);
+			console.log('First candle:', candleData[0]);
+			console.log('Last candle:', candleData[candleData.length - 1]);
 
+			candleSeries.setData(candleData);
 			mainChart.timeScale().fitContent();
-		}
 
-		// RSI chart
-		if (rsiChartContainer && chartData.rsi.length > 0) {
-			rsiChart = createChart(rsiChartContainer, {
-				...chartOptions,
-				autoSize: true,
-			});
-			rsiChart.applyOptions({ height: 120 });
+			// RSI chart
+			if (rsiChartContainer && chartData.rsi.length > 0) {
+				rsiChart = createChart(rsiChartContainer, {
+					...chartOptions,
+					autoSize: true,
+				});
 
-			const rsiSeries = rsiChart.addLineSeries({
-				color: '#a371f7',
-				lineWidth: 2,
-			});
-			rsiSeries.setData(chartData.rsi.map(r => ({ time: toChartTime(r.time), value: r.value })));
+				const rsiSeries = rsiChart.addLineSeries({
+					color: '#a371f7',
+					lineWidth: 2,
+				});
+				rsiSeries.setData(chartData.rsi.map(r => ({
+					time: toChartTime(r.time),
+					value: r.value,
+				})));
+				rsiChart.timeScale().fitContent();
+				console.log('RSI chart created with', chartData.rsi.length, 'points');
+			}
 
-			// RSI levels (30, 70)
-			rsiSeries.createPriceLine({ price: 70, color: '#f85149', lineWidth: 1, lineStyle: 2, title: '과매수' });
-			rsiSeries.createPriceLine({ price: 30, color: '#3fb950', lineWidth: 1, lineStyle: 2, title: '과매도' });
+			// MACD chart
+			if (macdChartContainer && chartData.macd.length > 0) {
+				macdChart = createChart(macdChartContainer, {
+					...chartOptions,
+					autoSize: true,
+				});
 
-			rsiChart.timeScale().fitContent();
-		}
+				const macdLine = macdChart.addLineSeries({
+					color: '#58a6ff',
+					lineWidth: 2,
+				});
+				macdLine.setData(chartData.macd.map(m => ({
+					time: toChartTime(m.time),
+					value: m.macd,
+				})));
 
-		// MACD chart
-		if (macdChartContainer && chartData.macd.length > 0) {
-			macdChart = createChart(macdChartContainer, {
-				...chartOptions,
-				autoSize: true,
-			});
-			macdChart.applyOptions({ height: 120 });
+				const signalLine = macdChart.addLineSeries({
+					color: '#f0883e',
+					lineWidth: 1,
+				});
+				signalLine.setData(
+					chartData.macd
+						.filter(m => m.signal !== null)
+						.map(m => ({ time: toChartTime(m.time), value: m.signal }))
+				);
+				macdChart.timeScale().fitContent();
+				console.log('MACD chart created with', chartData.macd.length, 'points');
+			}
 
-			// MACD line
-			const macdLineSeries = macdChart.addLineSeries({
-				color: '#58a6ff',
-				lineWidth: 2,
-			});
-			macdLineSeries.setData(chartData.macd.map((m) => ({ time: toChartTime(m.time), value: m.macd })));
-
-			// Signal line
-			const signalSeries = macdChart.addLineSeries({
-				color: '#f0883e',
-				lineWidth: 1,
-			});
-			signalSeries.setData(
-				chartData.macd.filter((m) => m.signal !== null).map((m) => ({ time: toChartTime(m.time), value: m.signal }))
-			);
-
-			// Histogram
-			const histogramSeries = macdChart.addHistogramSeries({
-				color: '#3fb950',
-			});
-			histogramSeries.setData(
-				chartData.macd
-					.filter((m) => m.histogram !== null)
-					.map((m) => ({
-						time: toChartTime(m.time),
-						value: m.histogram,
-						color: m.histogram! >= 0 ? 'rgba(63, 185, 80, 0.5)' : 'rgba(248, 81, 73, 0.5)',
-					}))
-			);
-
-			macdChart.timeScale().fitContent();
-		}
+			chartRendered = true;
+			console.log('All charts rendered successfully!');
 		} catch (e) {
-			chartError = e instanceof Error ? e.message : '차트 렌더링 오류';
 			console.error('Chart render error:', e);
+			error = e instanceof Error ? e.message : '차트 렌더링 오류';
 		}
 	}
 
@@ -262,12 +245,6 @@
 	function formatCurrency(value: number | null): string {
 		if (value === null) return '-';
 		return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-	}
-
-	// Convert Unix timestamp to YYYY-MM-DD format for lightweight-charts
-	function toChartTime(timestamp: number): string {
-		const date = new Date(timestamp * 1000);
-		return date.toISOString().split('T')[0];
 	}
 </script>
 
@@ -307,59 +284,36 @@
 		<div class="error-box">{error}</div>
 	{/if}
 
-	{#if chartError}
-		<div class="error-box">차트 오류: {chartError}</div>
-	{/if}
-
 	{#if isLoading}
 		<div class="loading">차트 로딩 중...</div>
 	{:else if chartData}
-		<!-- Summary -->
 		<div class="summary card">
 			<div class="indicator">
-				<span class="label">
-					RSI
-					<span class="tooltip-icon" title="RSI 70↑ 과매수(매도 고려), 30↓ 과매도(매수 고려)">?</span>
-				</span>
+				<span class="label">RSI</span>
 				<span class="value" class:overbought={chartData.summary.rsi && chartData.summary.rsi >= 70} class:oversold={chartData.summary.rsi && chartData.summary.rsi <= 30}>
 					{chartData.summary.rsi ?? '-'}
 				</span>
 				<span class="signal">{chartData.summary.rsi_signal}</span>
 			</div>
 			<div class="indicator">
-				<span class="label">
-					MACD
-					<span class="tooltip-icon" title="MACD > Signal = 상승추세, 골든크로스 = 매수신호">?</span>
-				</span>
+				<span class="label">MACD</span>
 				<span class="value">{chartData.summary.macd ?? '-'}</span>
-				<span class="signal-value">Signal: {chartData.summary.macd_signal ?? '-'}</span>
 			</div>
 		</div>
 
-		<!-- Charts -->
 		<div class="chart-section">
 			<div class="chart-title">캔들스틱 ({chartData.candles.length}개)</div>
-			<div class="chart-container" bind:this={mainChartContainer}>
-				{#if !mainChart}
-					<div class="chart-placeholder">차트 렌더링 중...</div>
-				{/if}
-			</div>
+			<div class="chart-container" bind:this={mainChartContainer} id="main-chart"></div>
 		</div>
 
 		<div class="chart-section">
-			<div class="chart-title">
-				RSI (14)
-				<span class="tooltip-icon" title="상대강도지수: 14일간 가격 변동의 강도 측정. 70 이상 과매수, 30 이하 과매도">?</span>
-			</div>
-			<div class="chart-container rsi-chart" bind:this={rsiChartContainer}></div>
+			<div class="chart-title">RSI (14)</div>
+			<div class="chart-container small" bind:this={rsiChartContainer} id="rsi-chart"></div>
 		</div>
 
 		<div class="chart-section">
-			<div class="chart-title">
-				MACD (12, 26, 9)
-				<span class="tooltip-icon" title="이동평균수렴확산: 단기(12일)와 장기(26일) EMA 차이. 시그널선(9일 EMA)과 교차 시 매매 신호">?</span>
-			</div>
-			<div class="chart-container macd-chart" bind:this={macdChartContainer}></div>
+			<div class="chart-title">MACD</div>
+			<div class="chart-container small" bind:this={macdChartContainer} id="macd-chart"></div>
 		</div>
 	{/if}
 </div>
@@ -479,9 +433,6 @@
 	.indicator .label {
 		font-size: 0.75rem;
 		color: #8b949e;
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
 	}
 
 	.indicator .value {
@@ -505,24 +456,6 @@
 		color: #8b949e;
 	}
 
-	.indicator .signal-value {
-		font-size: 0.7rem;
-		color: #8b949e;
-	}
-
-	.tooltip-icon {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 14px;
-		height: 14px;
-		background: #30363d;
-		border-radius: 50%;
-		font-size: 0.6rem;
-		color: #8b949e;
-		cursor: help;
-	}
-
 	.chart-section {
 		margin-bottom: 1rem;
 	}
@@ -531,9 +464,6 @@
 		font-size: 0.85rem;
 		color: #8b949e;
 		margin-bottom: 0.5rem;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
 	}
 
 	.chart-container {
@@ -542,24 +472,10 @@
 		border-radius: 8px;
 		overflow: hidden;
 		width: 100%;
-		min-height: 300px;
-		position: relative;
+		height: 300px;
 	}
 
-	.chart-placeholder {
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		color: #8b949e;
-		font-size: 0.85rem;
-	}
-
-	.chart-container.rsi-chart {
-		min-height: 120px;
-	}
-
-	.chart-container.macd-chart {
-		min-height: 120px;
+	.chart-container.small {
+		height: 100px;
 	}
 </style>
