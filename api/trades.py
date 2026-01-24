@@ -94,7 +94,7 @@ async def get_trades(
 
 @router.post("/")
 async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved_user)):
-    """매매 기록 추가"""
+    """매매 기록 추가 + 포트폴리오 자동 업데이트"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -113,11 +113,72 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS user_holdings (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            ticker VARCHAR(10) NOT NULL,
+            shares DECIMAL(15, 4) NOT NULL,
+            avg_cost DECIMAL(15, 4) NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, ticker)
+        )
+    """)
     conn.commit()
 
     ticker = trade.ticker.upper().strip()
     total_amount = trade.shares * trade.price
 
+    # 현재 보유 현황 확인
+    cur.execute(
+        "SELECT id, shares, avg_cost FROM user_holdings WHERE user_id = %s AND ticker = %s",
+        (user["id"], ticker)
+    )
+    holding = cur.fetchone()
+
+    if trade.trade_type == TradeType.BUY:
+        # 매수: 평단 재계산
+        if holding:
+            old_shares = float(holding["shares"])
+            old_avg = float(holding["avg_cost"])
+            new_shares = old_shares + trade.shares
+            new_avg = (old_shares * old_avg + trade.shares * trade.price) / new_shares
+            cur.execute("""
+                UPDATE user_holdings SET shares = %s, avg_cost = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (new_shares, round(new_avg, 4), holding["id"]))
+        else:
+            cur.execute("""
+                INSERT INTO user_holdings (user_id, ticker, shares, avg_cost)
+                VALUES (%s, %s, %s, %s)
+            """, (user["id"], ticker, trade.shares, trade.price))
+
+    elif trade.trade_type == TradeType.SELL:
+        # 매도: 보유 수량 확인
+        if not holding:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"{ticker}을(를) 보유하고 있지 않습니다")
+
+        old_shares = float(holding["shares"])
+        if trade.shares > old_shares:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"보유 수량({old_shares}주)보다 많이 매도할 수 없습니다")
+
+        new_shares = old_shares - trade.shares
+        if new_shares <= 0:
+            # 전량 매도: 삭제
+            cur.execute("DELETE FROM user_holdings WHERE id = %s", (holding["id"],))
+        else:
+            # 일부 매도: 수량만 감소 (평단 유지)
+            cur.execute("""
+                UPDATE user_holdings SET shares = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (new_shares, holding["id"]))
+
+    # 매매 기록 저장
     cur.execute("""
         INSERT INTO trades (user_id, ticker, trade_type, shares, price, total_amount, note)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -129,8 +190,9 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
     cur.close()
     conn.close()
 
+    action = "매수" if trade.trade_type == TradeType.BUY else "매도"
     return {
-        "message": f"{ticker} {trade.trade_type.value} 기록됨",
+        "message": f"{ticker} {trade.shares}주 {action} 완료",
         "trade": {
             "id": result["id"],
             "ticker": result["ticker"],

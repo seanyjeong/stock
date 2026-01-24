@@ -26,20 +26,19 @@
 	let isLoading = $state(true);
 	let error = $state('');
 
-	// Add form
-	let showAddForm = $state(false);
+	// Trade form
+	type TradeMode = 'buy' | 'sell' | null;
+	let tradeMode = $state<TradeMode>(null);
 	let searchQuery = $state('');
 	let searchResults = $state<SearchResult[]>([]);
 	let selectedTicker = $state('');
-	let shares = $state('');
-	let avgCost = $state('');
+	let tradeShares = $state('');
+	let tradePrice = $state('');
 	let isSearching = $state(false);
 	let isSubmitting = $state(false);
 
-	// Edit
-	let editingId = $state<number | null>(null);
-	let editShares = $state('');
-	let editAvgCost = $state('');
+	// Sell mode - selected holding
+	let selectedHolding = $state<Holding | null>(null);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -117,98 +116,81 @@
 		searchResults = [];
 	}
 
-	async function addHolding() {
-		if (!selectedTicker || !shares || !avgCost) {
+	function openBuyForm(holding?: Holding) {
+		tradeMode = 'buy';
+		if (holding) {
+			// 추가 매수
+			selectedTicker = holding.ticker;
+			selectedHolding = holding;
+		} else {
+			// 새 종목 매수
+			selectedTicker = '';
+			selectedHolding = null;
+		}
+		tradeShares = '';
+		tradePrice = '';
+		searchQuery = '';
+		searchResults = [];
+	}
+
+	function openSellForm(holding: Holding) {
+		tradeMode = 'sell';
+		selectedTicker = holding.ticker;
+		selectedHolding = holding;
+		tradeShares = '';
+		tradePrice = holding.current_price.toString();
+	}
+
+	function closeTrade() {
+		tradeMode = null;
+		selectedTicker = '';
+		selectedHolding = null;
+		tradeShares = '';
+		tradePrice = '';
+		searchQuery = '';
+		searchResults = [];
+	}
+
+	async function submitTrade() {
+		if (!selectedTicker || !tradeShares || !tradePrice) {
 			alert('모든 필드를 입력해주세요');
+			return;
+		}
+
+		const shares = parseFloat(tradeShares);
+		const price = parseFloat(tradePrice);
+
+		if (tradeMode === 'sell' && selectedHolding && shares > selectedHolding.shares) {
+			alert(`보유 수량(${selectedHolding.shares}주)보다 많이 매도할 수 없습니다`);
 			return;
 		}
 
 		isSubmitting = true;
 		try {
-			const response = await fetch(`${API_BASE}/api/portfolio/holdings`, {
+			const response = await fetch(`${API_BASE}/api/trades/`, {
 				method: 'POST',
 				headers: getAuthHeaders(),
 				body: JSON.stringify({
 					ticker: selectedTicker,
-					shares: parseFloat(shares),
-					avg_cost: parseFloat(avgCost),
+					trade_type: tradeMode,
+					shares: shares,
+					price: price,
 				}),
 			});
 
 			if (!response.ok) {
 				const data = await response.json();
-				throw new Error(data.detail || '추가에 실패했습니다');
+				throw new Error(data.detail || '거래 실패');
 			}
 
-			showAddForm = false;
-			searchQuery = '';
-			selectedTicker = '';
-			shares = '';
-			avgCost = '';
-			searchResults = [];
-
+			const result = await response.json();
+			alert(result.message);
+			closeTrade();
 			await loadPortfolio();
 		} catch (e) {
 			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
 		} finally {
 			isSubmitting = false;
-		}
-	}
-
-	function startEdit(holding: Holding) {
-		editingId = holding.id;
-		editShares = holding.shares.toString();
-		editAvgCost = holding.avg_cost.toString();
-	}
-
-	function cancelEdit() {
-		editingId = null;
-		editShares = '';
-		editAvgCost = '';
-	}
-
-	async function saveEdit(holdingId: number) {
-		isSubmitting = true;
-		try {
-			const response = await fetch(`${API_BASE}/api/portfolio/holdings/${holdingId}`, {
-				method: 'PUT',
-				headers: getAuthHeaders(),
-				body: JSON.stringify({
-					shares: parseFloat(editShares),
-					avg_cost: parseFloat(editAvgCost),
-				}),
-			});
-
-			if (!response.ok) {
-				const data = await response.json();
-				throw new Error(data.detail || '수정에 실패했습니다');
-			}
-
-			cancelEdit();
-			await loadPortfolio();
-		} catch (e) {
-			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
-		} finally {
-			isSubmitting = false;
-		}
-	}
-
-	async function deleteHolding(holding: Holding) {
-		if (!confirm(`${holding.ticker}를 삭제하시겠습니까?`)) return;
-
-		try {
-			const response = await fetch(`${API_BASE}/api/portfolio/holdings/${holding.id}`, {
-				method: 'DELETE',
-				headers: getAuthHeaders(),
-			});
-
-			if (!response.ok) {
-				throw new Error('삭제에 실패했습니다');
-			}
-
-			await loadPortfolio();
-		} catch (e) {
-			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
 		}
 	}
 
@@ -246,8 +228,8 @@
 <div class="container">
 	<div class="header">
 		<h1>💰 포트폴리오</h1>
-		<button class="btn-add" onclick={() => showAddForm = !showAddForm}>
-			{showAddForm ? '취소' : '+ 추가'}
+		<button class="btn-buy" onclick={() => openBuyForm()}>
+			+ 매수
 		</button>
 	</div>
 
@@ -255,49 +237,78 @@
 		<div class="error-box">{error}</div>
 	{/if}
 
-	{#if showAddForm}
-		<div class="add-form card">
-			<h3>종목 추가</h3>
-			<div class="form-group">
-				<label>종목 검색</label>
-				<input
-					type="text"
-					placeholder="티커 또는 종목명 검색..."
-					bind:value={searchQuery}
-					oninput={handleSearch}
-				/>
-				{#if isSearching}
-					<div class="search-loading">검색 중...</div>
-				{/if}
-				{#if searchResults.length > 0}
-					<div class="search-results">
-						{#each searchResults as result}
-							<button class="search-item" onclick={() => selectTicker(result)}>
-								<span class="ticker">{result.symbol}</span>
-								<span class="name">{result.name}</span>
-								<span class="exchange">{result.exchange}</span>
-							</button>
-						{/each}
+	{#if tradeMode}
+		<div class="trade-form card">
+			<h3>{tradeMode === 'buy' ? '📈 매수' : '📉 매도'}</h3>
+
+			{#if tradeMode === 'buy' && !selectedHolding}
+				<!-- 새 종목 매수: 검색 필요 -->
+				<div class="form-group">
+					<label>종목 검색</label>
+					<input
+						type="text"
+						placeholder="티커 또는 종목명 검색..."
+						bind:value={searchQuery}
+						oninput={handleSearch}
+					/>
+					{#if isSearching}
+						<div class="search-loading">검색 중...</div>
+					{/if}
+					{#if searchResults.length > 0}
+						<div class="search-results">
+							{#each searchResults as result}
+								<button class="search-item" onclick={() => selectTicker(result)}>
+									<span class="ticker">{result.symbol}</span>
+									<span class="name">{result.name}</span>
+									<span class="exchange">{result.exchange}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{:else}
+				<!-- 기존 종목 매수/매도: 티커 표시 -->
+				<div class="selected-ticker">
+					<span class="ticker-badge">{selectedTicker}</span>
+					{#if selectedHolding}
+						<span class="current-shares">현재 보유: {selectedHolding.shares}주 (평단: ${selectedHolding.avg_cost.toFixed(2)})</span>
+					{/if}
+				</div>
+			{/if}
+
+			{#if selectedTicker}
+				<div class="form-row">
+					<div class="form-group">
+						<label>수량</label>
+						<input type="number" step="1" min="1" placeholder="0" bind:value={tradeShares} />
+						{#if tradeMode === 'sell' && selectedHolding}
+							<button class="btn-all" onclick={() => tradeShares = selectedHolding.shares.toString()}>전량</button>
+						{/if}
+					</div>
+					<div class="form-group">
+						<label>{tradeMode === 'buy' ? '매수가' : '매도가'} ($)</label>
+						<input type="number" step="0.01" placeholder="0.00" bind:value={tradePrice} />
+					</div>
+				</div>
+
+				{#if tradeShares && tradePrice}
+					<div class="trade-summary">
+						<span>총 {tradeMode === 'buy' ? '매수' : '매도'}금액:</span>
+						<span class="amount">${(parseFloat(tradeShares) * parseFloat(tradePrice)).toFixed(2)}</span>
 					</div>
 				{/if}
+			{/if}
+
+			<div class="form-actions">
+				<button class="btn-cancel" onclick={closeTrade}>취소</button>
+				<button
+					class="btn-submit {tradeMode}"
+					onclick={submitTrade}
+					disabled={isSubmitting || !selectedTicker || !tradeShares || !tradePrice}
+				>
+					{isSubmitting ? '처리 중...' : (tradeMode === 'buy' ? '매수하기' : '매도하기')}
+				</button>
 			</div>
-			<div class="form-row">
-				<div class="form-group">
-					<label>수량</label>
-					<input type="number" step="0.0001" placeholder="0" bind:value={shares} />
-				</div>
-				<div class="form-group">
-					<label>평균단가 ($)</label>
-					<input type="number" step="0.01" placeholder="0.00" bind:value={avgCost} />
-				</div>
-			</div>
-			<button
-				class="btn-submit"
-				onclick={addHolding}
-				disabled={isSubmitting || !selectedTicker || !shares || !avgCost}
-			>
-				{isSubmitting ? '추가 중...' : '추가하기'}
-			</button>
 		</div>
 	{/if}
 
@@ -321,56 +332,42 @@
 			<div class="holdings">
 				{#each holdings as holding}
 					<div class="holding-card card">
-						{#if editingId === holding.id}
-							<div class="edit-form">
-								<div class="ticker">{holding.ticker}</div>
-								<div class="edit-inputs">
-									<input type="number" step="0.0001" bind:value={editShares} placeholder="수량" />
-									<input type="number" step="0.01" bind:value={editAvgCost} placeholder="평단" />
-								</div>
-								<div class="edit-actions">
-									<button class="btn-save" onclick={() => saveEdit(holding.id)} disabled={isSubmitting}>저장</button>
-									<button class="btn-cancel" onclick={cancelEdit}>취소</button>
-								</div>
+						<div class="holding-header">
+							<span class="ticker">{holding.ticker}</span>
+							<span class="gain {getGainClass(holding.gain)}">
+								{formatCurrency(holding.gain)} ({formatPercent(holding.gain_pct)})
+							</span>
+						</div>
+						<div class="holding-details">
+							<div class="detail">
+								<span class="label">수량</span>
+								<span class="value">{holding.shares}주</span>
 							</div>
-						{:else}
-							<div class="holding-header">
-								<span class="ticker">{holding.ticker}</span>
-								<span class="gain {getGainClass(holding.gain)}">
-									{formatCurrency(holding.gain)} ({formatPercent(holding.gain_pct)})
-								</span>
+							<div class="detail">
+								<span class="label">평단</span>
+								<span class="value">{formatCurrency(holding.avg_cost)}</span>
 							</div>
-							<div class="holding-details">
-								<div class="detail">
-									<span class="label">수량</span>
-									<span class="value">{holding.shares}주</span>
-								</div>
-								<div class="detail">
-									<span class="label">평단</span>
-									<span class="value">{formatCurrency(holding.avg_cost)}</span>
-								</div>
-								<div class="detail">
-									<span class="label">현재가</span>
-									<span class="value">{formatCurrency(holding.current_price)}</span>
-								</div>
-								<div class="detail">
-									<span class="label">평가금</span>
-									<span class="value">{formatCurrency(holding.value)}</span>
-								</div>
+							<div class="detail">
+								<span class="label">현재가</span>
+								<span class="value">{formatCurrency(holding.current_price)}</span>
 							</div>
-							<div class="holding-actions">
-								<button class="btn-edit" onclick={() => startEdit(holding)}>수정</button>
-								<button class="btn-delete" onclick={() => deleteHolding(holding)}>삭제</button>
+							<div class="detail">
+								<span class="label">평가금</span>
+								<span class="value">{formatCurrency(holding.value)}</span>
 							</div>
-						{/if}
+						</div>
+						<div class="holding-actions">
+							<button class="btn-buy-more" onclick={() => openBuyForm(holding)}>+ 매수</button>
+							<button class="btn-sell" onclick={() => openSellForm(holding)}>- 매도</button>
+						</div>
 					</div>
 				{/each}
 			</div>
 		{:else}
 			<div class="empty card">
 				<p>보유 종목이 없습니다</p>
-				<button class="btn-add-first" onclick={() => showAddForm = true}>
-					+ 첫 종목 추가하기
+				<button class="btn-add-first" onclick={() => openBuyForm()}>
+					+ 첫 종목 매수하기
 				</button>
 			</div>
 		{/if}
@@ -396,7 +393,7 @@
 		margin: 0;
 	}
 
-	.btn-add {
+	.btn-buy {
 		padding: 0.5rem 1rem;
 		background: #238636;
 		border: none;
@@ -404,6 +401,10 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+	}
+
+	.btn-buy:hover {
+		background: #2ea043;
 	}
 
 	.card {
@@ -429,9 +430,97 @@
 		color: #8b949e;
 	}
 
-	.add-form h3 {
+	.trade-form h3 {
 		margin: 0 0 1rem;
-		font-size: 1rem;
+		font-size: 1.1rem;
+	}
+
+	.selected-ticker {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin-bottom: 1rem;
+	}
+
+	.ticker-badge {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		background: #30363d;
+		border-radius: 8px;
+		font-weight: 700;
+		font-size: 1.1rem;
+	}
+
+	.current-shares {
+		font-size: 0.8rem;
+		color: #8b949e;
+	}
+
+	.btn-all {
+		position: absolute;
+		right: 8px;
+		top: 50%;
+		transform: translateY(-50%);
+		padding: 0.25rem 0.5rem;
+		background: #30363d;
+		border: none;
+		border-radius: 4px;
+		color: #8b949e;
+		font-size: 0.7rem;
+		cursor: pointer;
+	}
+
+	.trade-summary {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.75rem;
+		background: #0d1117;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+	}
+
+	.trade-summary .amount {
+		font-weight: 700;
+		color: #58a6ff;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.form-actions .btn-cancel {
+		flex: 1;
+		padding: 0.75rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #f0f6fc;
+		cursor: pointer;
+	}
+
+	.form-actions .btn-submit {
+		flex: 2;
+		padding: 0.75rem;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.form-actions .btn-submit.buy {
+		background: #238636;
+		color: white;
+	}
+
+	.form-actions .btn-submit.sell {
+		background: #da3633;
+		color: white;
+	}
+
+	.form-actions .btn-submit:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.form-group {
@@ -637,43 +726,45 @@
 	.holding-actions {
 		display: flex;
 		gap: 0.5rem;
+		margin-top: 0.75rem;
 	}
 
-	.btn-edit, .btn-delete {
+	.btn-buy-more, .btn-sell {
 		flex: 1;
 		padding: 0.5rem;
-		border: 1px solid #30363d;
+		border: none;
 		border-radius: 6px;
-		background: transparent;
-		font-size: 0.75rem;
+		font-size: 0.8rem;
+		font-weight: 600;
 		cursor: pointer;
 	}
 
-	.btn-edit {
-		color: #58a6ff;
+	.btn-buy-more {
+		background: rgba(35, 134, 54, 0.2);
+		color: #3fb950;
 	}
 
-	.btn-delete {
+	.btn-buy-more:hover {
+		background: rgba(35, 134, 54, 0.3);
+	}
+
+	.btn-sell {
+		background: rgba(218, 54, 51, 0.2);
 		color: #f85149;
 	}
 
-	.edit-form .ticker {
-		font-size: 1.1rem;
-		font-weight: 700;
-		color: #58a6ff;
-		margin-bottom: 0.75rem;
+	.btn-sell:hover {
+		background: rgba(218, 54, 51, 0.3);
 	}
 
-	.edit-inputs {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-		margin-bottom: 0.75rem;
-	}
-
-	.edit-inputs input {
-		padding: 0.5rem;
-		background: #0d1117;
+	.btn-add-first {
+		padding: 0.75rem 1.5rem;
+		background: #238636;
+		border: none;
+		border-radius: 8px;
+		color: white;
+		font-weight: 600;
+		cursor: pointer;
 		border: 1px solid #30363d;
 		border-radius: 6px;
 		color: #f0f6fc;
