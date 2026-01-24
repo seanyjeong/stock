@@ -432,7 +432,7 @@ async def get_squeeze_analysis():
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Get latest squeeze data for each ticker
+        # Get latest squeeze data for each ticker (v2: 새 컬럼 포함)
         cur.execute("""
             SELECT DISTINCT ON (s.ticker)
                 s.ticker,
@@ -441,6 +441,9 @@ async def get_squeeze_analysis():
                 s.days_to_cover,
                 s.short_volume,
                 s.squeeze_score,
+                s.available_shares,
+                s.float_shares,
+                s.dilution_protected,
                 s.collected_at,
                 t.company_name,
                 r.days_on_list
@@ -488,13 +491,24 @@ async def get_squeeze_analysis():
             else:
                 rating = "COLD"
 
+            # Zero Borrow 판정
+            is_zero_borrow = row["borrow_rate"] and float(row["borrow_rate"]) >= 999
+
             result.append({
                 "ticker": row["ticker"],
                 "company_name": row["company_name"],
-                "borrow_rate": float(row["borrow_rate"]) if row["borrow_rate"] else None,
+                # 핵심 지표
                 "short_interest": float(row["short_interest"]) if row["short_interest"] else None,
+                "borrow_rate": float(row["borrow_rate"]) if row["borrow_rate"] else None,
                 "days_to_cover": float(row["days_to_cover"]) if row["days_to_cover"] else None,
+                # v2 지표
+                "zero_borrow": is_zero_borrow,
+                "available_shares": int(row["available_shares"]) if row["available_shares"] else None,
+                "float_shares": int(row["float_shares"]) if row["float_shares"] else None,
+                "dilution_protected": bool(row["dilution_protected"]) if row["dilution_protected"] is not None else False,
+                # RegSHO
                 "regsho_days": regsho_days,
+                # 점수
                 "squeeze_score": squeeze_score,
                 "combined_score": combined_score,
                 "rating": rating,

@@ -5,8 +5,8 @@
 	const navItems = [
 		{ href: '/', label: '홈', icon: 'home' },
 		{ href: '/portfolio', label: '포트폴리오', icon: 'wallet' },
+		{ href: '/squeeze', label: '스퀴즈', icon: 'fire' },
 		{ href: '/watchlist', label: '관심', icon: 'star' },
-		{ href: '/history', label: '이력', icon: 'clock' },
 		{ href: '/settings', label: '설정', icon: 'settings' }
 	];
 
