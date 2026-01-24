@@ -44,7 +44,7 @@
 		error = '';
 
 		try {
-			const token = browser ? localStorage.getItem('auth_token') : null;
+			const token = browser ? localStorage.getItem('access_token') : null;
 			const headers: Record<string, string> = {};
 			if (token) headers['Authorization'] = `Bearer ${token}`;
 
