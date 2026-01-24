@@ -519,6 +519,12 @@ async def collect_squeeze_data(page, tickers):
             stock = yf.Ticker(ticker)
             info = stock.info
 
+            # ETF 제외 (숏스퀴즈 대상 아님)
+            quote_type = info.get("quoteType", "")
+            if quote_type == "ETF":
+                print(f"  ⏭️ {ticker}: ETF 제외")
+                continue
+
             # Short Interest (유동주식 대비 공매도 비율, %)
             short_pct = info.get("shortPercentOfFloat")
             short_interest = round(short_pct * 100, 2) if short_pct else None
