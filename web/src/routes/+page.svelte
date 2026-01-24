@@ -39,7 +39,11 @@
 	let portfolioLoading = $state(true);
 	let isLoggedIn = $state(false);
 	let isAdmin = $state(false);
-	let blogExpanded = $state(true);
+	let blogExpanded = $state(browser ? localStorage.getItem('blogExpanded') !== 'false' : true);
+
+	$effect(() => {
+		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
+	});
 	let regshoExpanded = $state(false);
 
 	let regsho = $derived(data.regsho);
