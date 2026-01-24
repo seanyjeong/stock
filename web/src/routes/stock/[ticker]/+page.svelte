@@ -102,6 +102,9 @@
 	async function renderCharts() {
 		if (!chartData || !browser) return;
 
+		// Wait for next frame to ensure DOM is ready
+		await new Promise(resolve => requestAnimationFrame(resolve));
+
 		// Dynamically import lightweight-charts
 		const { createChart, ColorType, CrosshairMode } = await import('lightweight-charts');
 
@@ -311,7 +314,7 @@
 				RSI (14)
 				<span class="tooltip-icon" title="상대강도지수: 14일간 가격 변동의 강도 측정. 70 이상 과매수, 30 이하 과매도">?</span>
 			</div>
-			<div class="chart-container" bind:this={rsiChartContainer}></div>
+			<div class="chart-container rsi-chart" bind:this={rsiChartContainer}></div>
 		</div>
 
 		<div class="chart-section">
@@ -319,7 +322,7 @@
 				MACD (12, 26, 9)
 				<span class="tooltip-icon" title="이동평균수렴확산: 단기(12일)와 장기(26일) EMA 차이. 시그널선(9일 EMA)과 교차 시 매매 신호">?</span>
 			</div>
-			<div class="chart-container" bind:this={macdChartContainer}></div>
+			<div class="chart-container macd-chart" bind:this={macdChartContainer}></div>
 		</div>
 	{/if}
 </div>
@@ -490,5 +493,14 @@
 		border: 1px solid #30363d;
 		border-radius: 8px;
 		overflow: hidden;
+		min-height: 300px;
+	}
+
+	.chart-container.rsi-chart {
+		min-height: 120px;
+	}
+
+	.chart-container.macd-chart {
+		min-height: 120px;
 	}
 </style>
