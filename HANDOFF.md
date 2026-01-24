@@ -48,7 +48,12 @@ Urgency Bonus (0-15):
 - API: `/api/trades/history` (이미 있음)
 - 파일: `web/src/routes/portfolio/+page.svelte`
 
-### 3. 실시간 가격 알림 (나중에)
+### 3. 모든 종목 Borrow Rate 수집 (중요!)
+- 현재: shortablestocks.com → RegSHO 종목만 BR 있음
+- 목표: 모든 종목 BR 수집
+- 방안: Fintel API (유료) 또는 다른 무료 소스 조사
+
+### 4. 실시간 가격 알림 (나중에)
 - 유료 API 필요 (Polygon, Alpha Vantage)
 - 현재는 cron 기반 (하루 1회)
 
