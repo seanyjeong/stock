@@ -1,5 +1,14 @@
 # Daily Stock Story - Claude 설정
 
+## 1. 코드 수정 시 필수!
+**`ARCHITECTURE.md` 최신화 필수!**
+- DB 스키마 변경 → 테이블 구조 수정
+- API 추가/변경 → 엔드포인트 목록 수정
+- 컴포넌트 추가 → 프론트 구조 수정
+- 로직 변경 → 해당 섹션 수정
+
+---
+
 ## 다음 작업 (TODO)
 **플랜 문서:** `PLAN_v2_scanner.md`
 
@@ -31,6 +40,7 @@
 1. `web/package.json` - `"version": "x.x.x"`
 2. `web/src/routes/settings/+page.svelte` - 버전 표시
 3. 커밋 메시지: `chore: vX.X.X`
+
 
 **API 서버:**
 - 포트: **8340**
