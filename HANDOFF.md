@@ -44,21 +44,6 @@ cd web && npm install lightweight-charts
 
 ---
 
-## 환경변수 (.env)
-
-```
-DATABASE_URL=postgresql://claude:claude_dev@localhost:5432/continuous_claude
-JWT_SECRET=***REMOVED***
-KAKAO_REST_API_KEY=***REMOVED***
-KAKAO_REDIRECT_URI=https://stock-six-phi.vercel.app/login
-KAKAO_CLIENT_SECRET=***REMOVED***
-VAPID_PUBLIC_KEY=***REMOVED***
-VAPID_PRIVATE_KEY=***REMOVED***
-VAPID_EMAIL=mailto:sean8320@gmail.com
-```
-
----
-
 ## API 엔드포인트
 
 | 엔드포인트 | 설명 |
