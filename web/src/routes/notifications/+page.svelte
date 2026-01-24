@@ -9,6 +9,7 @@
 	let isSubscribed = $state(false);
 	let isLoading = $state(true);
 	let error = $state('');
+	let isAdmin = $state(false);
 
 	// Settings
 	let dataUpdateAlerts = $state(true);
@@ -21,6 +22,15 @@
 
 	onMount(async () => {
 		if (!browser) return;
+
+		// Check admin status
+		const userStr = localStorage.getItem('user');
+		if (userStr) {
+			try {
+				const user = JSON.parse(userStr);
+				isAdmin = user.is_admin === true;
+			} catch {}
+		}
 
 		// Check if push notifications are supported
 		isSupported = 'serviceWorker' in navigator && 'PushManager' in window;
@@ -295,6 +305,7 @@
 						<input type="checkbox" bind:checked={regshoAlerts} onchange={saveSettings} />
 					</label>
 
+					{#if isAdmin}
 					<label class="toggle-item">
 						<div class="toggle-info">
 							<span class="toggle-label">블로그 알림</span>
@@ -302,6 +313,7 @@
 						</div>
 						<input type="checkbox" bind:checked={blogAlerts} onchange={saveSettings} />
 					</label>
+					{/if}
 				</div>
 
 				{#if isSaving}
