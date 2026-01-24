@@ -1,5 +1,19 @@
 # Daily Stock Story - Claude 설정
 
+## 버전 관리
+
+**버전 업데이트 시 수정해야 할 파일:**
+1. `web/package.json` - `"version": "x.x.x"`
+2. `web/src/routes/settings/+page.svelte` - 버전 표시
+3. 커밋 메시지: `chore: vX.X.X`
+
+**API 서버:**
+- 포트: **8340**
+- 재시작: `sudo systemctl restart stock-api`
+- 상태 확인: `sudo systemctl status stock-api`
+
+---
+
 ## 세션 시작 시 할 일
 
 Claude Code 세션 시작하면 **DB에서 브리핑 읽기만 하면 됨!**
