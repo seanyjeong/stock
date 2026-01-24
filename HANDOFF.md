@@ -6,17 +6,10 @@
 1. **Positive News 감지** - SEC EDGAR에서 deal/partnership/contract/agreement 키워드 검색
 2. **Negative News 감지** - lawsuit/bankruptcy/default/fraud/investigation/delisting 키워드
 3. **스코어 보너스/페널티** - 호재 +10점, 악재 -15점
-4. **프론트엔드 개선** - 종목명 제거, 티커 툴팁, 스코어 모달, PN/NN 뱃지 추가
-
-### v1.8.0 주요 기능
-1. **Zero Borrow 감지** - shortablestocks.com 스크래핑 (stealth 모드)
-2. **SEC EDGAR Full-Text Search** - 워런트/희석/covenant 언급 횟수 분석
-3. **v2 스코어 로직** - Base Score + Bonus 시스템
-4. **프론트엔드 /squeeze 페이지** - 점수 순 정렬, 필터, 지표 표시
-
-### BNAI 테스트 결과
-- **v1 점수:** 7.7점 (COLD)
-- **v2 점수:** 69.8점 (HOT!) 🔥
+4. **ETF 제외** - yfinance quoteType으로 필터링
+5. **프론트엔드** - 스코어 모달, PN/NN 뱃지, 티커 툴팁
+6. **로그인 연동** - squeeze API에서 user_holdings 조회
+7. **가격 알림 비활성화** - 실시간 API 필요
 
 ### 스코어 구성
 ```
@@ -33,61 +26,46 @@ Squeeze Pressure Bonus (0-25):
 Catalyst Bonus (0-10):
 └─ Positive News (50건+): +10점
 
+Risk Penalty (-15):
+└─ Negative News (20건+): -15점
+
 Urgency Bonus (0-15):
 ├─ BR > 300%: +10점
 └─ SI > 40%: +5점
 ```
 
-## 파일 변경
+## 다음 작업 (TODO)
 
-### Backend
-- `stock_collector.py` - v2 로직 추가
-  - `collect_borrow_rates()` - shortablestocks 스크래핑
-  - `collect_sec_dilution_info()` - SEC Full-Text Search
-  - `calculate_squeeze_score_v2()` - 새 스코어 계산
-- `api/main.py` - /api/squeeze 엔드포인트 새 컬럼 추가
+### 1. 홈페이지 RegSHO 섹션 개선 (우선순위 높음)
+- [ ] RegSHO 카드에 상위 4~5개만 점수순으로 표시
+- [ ] 연속등재일, 종목명 컬럼 제거
+- [ ] 주요 지표 표시: SI%, BR%, DTC, Float
+- [ ] 스코어 표시
+- 파일: `web/src/routes/+page.svelte`
 
-### Frontend
-- `web/src/routes/squeeze/+page.svelte` - 신규 페이지
-- `web/src/lib/components/BottomNav.svelte` - 스퀴즈 메뉴 추가
-- `web/src/lib/components/Icons.svelte` - fire 아이콘 추가
+### 2. 거래 이력 페이지
+- [ ] 포트폴리오에서 거래 기록 시 이력 표시
+- API: `/api/trades/history` (이미 있음)
+- 파일: `web/src/routes/portfolio/+page.svelte`
 
-### DB 스키마
-```sql
--- squeeze_data 테이블 새 컬럼
-available_shares BIGINT
-float_shares BIGINT
-dilution_protected BOOLEAN
-```
-
-## Cron 설정
-```bash
-# 매일 오전 9시 KST
-0 9 * * * cd /home/sean/dailystockstory && /home/sean/.local/bin/uv run python stock_collector.py
-```
-
-## API 서버 재시작 필요
-```bash
-sudo systemctl restart [서비스명]
-```
-
-## 다음 작업 (TODO) - 우선순위 높음!
-- [ ] **뉴스 호재 점수 추가** - SEC 8-K/PR Newswire에서 긍정 키워드 감지
-  - 키워드: deal, partnership, contract, agreement, revenue, profit
-  - 컬럼 추가: `has_positive_news`, `news_score`
-  - 스코어에 +5~10점 보너스
-- [ ] FTD 데이터 추가 (SEC에서 가져오기)
-- [ ] Sentiment 분석 추가 (Stocktwits/ORTEX - 현재 차단됨)
-- [ ] 알림 기능 (스코어 급등 시 푸시)
-
-## 의존성
-```
-playwright-stealth>=2.0.1  # 봇 감지 우회
-httpx>=0.28.1              # SEC API 호출
-```
+### 3. 실시간 가격 알림 (나중에)
+- 유료 API 필요 (Polygon, Alpha Vantage)
+- 현재는 cron 기반 (하루 1회)
 
 ## 커밋 히스토리
-- `6a80378` chore: bump version to v1.8.0
-- `4b9a04e` feat: 숏스퀴즈 분석 페이지 추가 (프론트엔드)
-- `5ab10f7` feat: 숏스퀴즈 v1.8.0 - SEC 워런트/희석 분석 완성
-- `548f148` feat: 숏스퀴즈 v1.7.0 - Zero Borrow 감지
+- `c9feaec` fix: squeeze API 호출 시 auth 토큰 전송
+- `99d24b0` chore: 가격 알림 일시 비활성화
+- `2932c87` chore: 프론트엔드 버전 1.9.0
+- `85cf15f` fix: squeeze API에서 로그인 유저의 user_holdings 사용
+- `444194a` fix: ETF 숏스퀴즈 분석에서 제외
+- `4dbf312` feat: 숏스퀴즈 v1.9.0 - 호재/악재 공시 분석
+
+## API 서버
+```bash
+sudo systemctl restart stock-api
+```
+
+## Cron
+```bash
+0 9 * * * cd /home/sean/dailystockstory && uv run python stock_collector.py
+```
