@@ -190,6 +190,10 @@
 			a.click();
 			document.body.removeChild(a);
 			URL.revokeObjectURL(url);
+
+			// 다운로드 완료 후 모달 닫기
+			closeReportProgress();
+			onClose();
 		} catch {
 			alert('PDF 다운로드 실패');
 		}

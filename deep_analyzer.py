@@ -36,6 +36,13 @@ import pandas as pd
 # Gemini API (새 SDK)
 from google import genai
 
+# 번역 (사업 설명 한글화)
+try:
+    from deep_translator import GoogleTranslator
+    translator = GoogleTranslator(source='en', target='ko')
+except:
+    translator = None
+
 # ============================================================
 # 설정
 # ============================================================
@@ -2602,6 +2609,73 @@ def print_basic_info(data: dict):
     print(f"  직원수: {fmt_num(data['employees'])}명")
     print(f"  웹사이트: {data['website'] or 'N/A'}")
 
+    # 사업 설명 (뭘로 돈 버는지) - 한글 번역!
+    desc = data.get('description')
+    if desc:
+        subsection("사업 내용 (뭘로 돈 버나?)")
+        # 한글 번역 시도
+        if translator:
+            try:
+                # 500자 제한 후 번역
+                desc_short = desc[:800] if len(desc) > 800 else desc
+                desc_ko = translator.translate(desc_short)
+                print(f"  {desc_ko}")
+            except Exception as e:
+                # 번역 실패 시 원문
+                print(f"  {desc[:500]}..." if len(desc) > 500 else f"  {desc}")
+        else:
+            print(f"  {desc[:500]}..." if len(desc) > 500 else f"  {desc}")
+
+
+def print_financials(data: dict):
+    """재무 정보 출력"""
+    section("재무 현황", "💵")
+
+    revenue = data.get('revenue')
+    net_income = data.get('net_income')
+    ebitda = data.get('ebitda')
+    revenue_growth = data.get('revenue_growth')
+    eps = data.get('eps')
+    pe = data.get('pe_ratio')
+    total_cash = data.get('total_cash')
+    total_debt = data.get('total_debt')
+    de_ratio = data.get('debt_to_equity')
+
+    # 매출/이익
+    subsection("매출 & 이익")
+    print(f"  매출 (TTM): {fmt_num(revenue, '$')}")
+    print(f"  순이익: {fmt_num(net_income, '$')}")
+    print(f"  EBITDA: {fmt_num(ebitda, '$')}")
+    if revenue_growth:
+        print(f"  매출 성장률: {revenue_growth*100:+.1f}%")
+
+    # 수익성
+    subsection("수익성")
+    print(f"  EPS: ${eps:.2f}" if eps else "  EPS: N/A (적자)")
+    print(f"  P/E: {pe:.1f}" if pe else "  P/E: N/A (적자 또는 데이터 없음)")
+
+    # 흑자/적자 판단
+    if net_income:
+        if net_income > 0:
+            print(f"  💰 흑자 기업")
+        else:
+            print(f"  🔴 적자 기업 (순손실: {fmt_num(abs(net_income), '$')})")
+
+    # 재무 건전성
+    subsection("재무 건전성")
+    print(f"  현금: {fmt_num(total_cash, '$')}")
+    print(f"  부채: {fmt_num(total_debt, '$')}")
+    if de_ratio:
+        print(f"  부채비율 (D/E): {de_ratio:.1f}%")
+
+    # 현금 > 부채면 양호
+    if total_cash and total_debt:
+        if total_cash > total_debt:
+            print(f"  ✅ 현금이 부채보다 많음 (재무 양호)")
+        else:
+            diff = total_debt - total_cash
+            print(f"  ⚠️ 부채가 현금보다 {fmt_num(diff, '$')} 많음")
+
 
 def print_price_info(data: dict):
     """가격 정보"""
@@ -3503,6 +3577,7 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
         # 기본 정보
         print_basic_info(data)
         print_price_info(data)
+        print_financials(data)
 
         # 숏스퀴즈 관련
         print_short_data(data, borrow, in_regsho)
