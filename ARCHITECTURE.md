@@ -77,6 +77,7 @@ sudo journalctl -u stock-api -f    # 로그 확인
 │   ├── main.py              # FastAPI 메인
 │   ├── auth.py              # 인증 (카카오 OAuth)
 │   ├── profile.py           # 투자성향 프로필 API
+│   ├── realtime.py          # 실시간 가격 (Finnhub polling)
 │   └── trades.py            # 거래 API
 ├── scanners/                 # 스캐너 시스템 (v2)
 │   ├── news_collector.py    # 뉴스 수집 (SEC/Finviz/Yahoo)
@@ -387,6 +388,14 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/recommendations` | 추천 종목 |
 | GET | `/api/blog` | 블로그 포스트 |
 | GET | `/api/announcements/` | 공지사항 |
+
+### 실시간 가격 (Finnhub)
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/realtime/prices?tickers=AAPL,TSLA` | 실시간 가격 (10초 캐싱) |
+| GET | `/realtime/quote/{ticker}` | 단일 종목 시세 |
+
+> **Rate Limit:** Finnhub 무료 60콜/분, 10초 캐싱으로 회피
 
 ### 관심종목
 | Method | Endpoint | 설명 |

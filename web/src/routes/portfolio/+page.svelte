@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icons.svelte';
@@ -55,11 +55,78 @@
 	// Sell mode - selected holding
 	let selectedHolding = $state<Holding | null>(null);
 
+	// Realtime prices
+	let realtimePrices = $state<Record<string, { current: number; change_pct: number }>>({});
+	let lastRealtimeUpdate = $state<Date | null>(null);
+	let realtimeInterval: ReturnType<typeof setInterval> | null = null;
+
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
 		await Promise.all([loadPortfolio(), loadTrades()]);
+		// 실시간 가격 폴링 시작 (10초 간격)
+		startRealtimePolling();
 	});
+
+	onDestroy(() => {
+		// 폴링 정리
+		if (realtimeInterval) {
+			clearInterval(realtimeInterval);
+		}
+	});
+
+	function startRealtimePolling() {
+		// 즉시 한 번 실행
+		fetchRealtimePrices();
+		// 10초마다 폴링
+		realtimeInterval = setInterval(fetchRealtimePrices, 10000);
+	}
+
+	async function fetchRealtimePrices() {
+		if (holdings.length === 0) return;
+
+		const tickers = holdings.map(h => h.ticker).join(',');
+		try {
+			const response = await fetch(`${API_BASE}/realtime/prices?tickers=${tickers}`);
+			if (response.ok) {
+				const data = await response.json();
+				realtimePrices = data.prices;
+				lastRealtimeUpdate = new Date();
+
+				// holdings 가격 업데이트
+				holdings = holdings.map(h => {
+					const rt = realtimePrices[h.ticker];
+					if (rt && rt.current) {
+						const newPrice = rt.current;
+						const newValue = h.shares * newPrice;
+						const newGain = newValue - (h.shares * h.avg_cost);
+						const newGainPct = h.avg_cost > 0 ? (newGain / (h.shares * h.avg_cost)) * 100 : 0;
+						return {
+							...h,
+							current_price: newPrice,
+							value: newValue,
+							gain: newGain,
+							gain_pct: newGainPct
+						};
+					}
+					return h;
+				});
+
+				// total 재계산
+				const totalValue = holdings.reduce((sum, h) => sum + h.value, 0);
+				const totalCost = holdings.reduce((sum, h) => sum + (h.shares * h.avg_cost), 0);
+				const totalGain = totalValue - totalCost;
+				total = {
+					...total,
+					value_usd: totalValue,
+					gain_usd: totalGain,
+					gain_pct: totalCost > 0 ? (totalGain / totalCost) * 100 : 0
+				};
+			}
+		} catch (e) {
+			console.error('Realtime price fetch failed:', e);
+		}
+	}
 
 	async function loadTrades() {
 		try {
@@ -359,6 +426,15 @@
 		<div class="loading">로딩 중...</div>
 	{:else}
 		{#if holdings.length > 0}
+			{#if lastRealtimeUpdate}
+				<div class="realtime-status">
+					<span class="realtime-indicator"></span>
+					<span class="realtime-text">실시간</span>
+					<span class="realtime-time">
+						{lastRealtimeUpdate.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+					</span>
+				</div>
+			{/if}
 			<div class="summary card">
 				<div class="summary-item">
 					<span class="label">총 평가금</span>
@@ -1017,5 +1093,40 @@
 		font-size: 0.7rem;
 		color: #6e7681;
 		text-align: right;
+	}
+
+	/* 실시간 가격 표시 */
+	.realtime-status {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.5rem;
+		margin-bottom: 0.75rem;
+		background: rgba(35, 134, 54, 0.1);
+		border-radius: 8px;
+		font-size: 0.75rem;
+	}
+
+	.realtime-indicator {
+		width: 8px;
+		height: 8px;
+		background: #3fb950;
+		border-radius: 50%;
+		animation: pulse 2s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
+
+	.realtime-text {
+		color: #3fb950;
+		font-weight: 600;
+	}
+
+	.realtime-time {
+		color: #8b949e;
 	}
 </style>
