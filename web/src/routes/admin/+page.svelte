@@ -47,6 +47,12 @@
 	let editingAnnouncement = $state<Announcement | null>(null);
 	let announcementForm = $state({ title: '', content: '', is_important: false });
 
+	// AI Draft
+	let showAiDraft = $state(false);
+	let aiPrompt = $state('');
+	let aiTone = $state<'friendly' | 'formal' | 'urgent'>('friendly');
+	let aiLoading = $state(false);
+
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
@@ -207,6 +213,39 @@
 		showAnnouncementForm = false;
 		editingAnnouncement = null;
 		announcementForm = { title: '', content: '', is_important: false };
+		showAiDraft = false;
+		aiPrompt = '';
+	}
+
+	async function generateAiDraft() {
+		if (!aiPrompt.trim()) {
+			alert('내용을 입력하세요');
+			return;
+		}
+		aiLoading = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/announcements/draft`, {
+				method: 'POST',
+				headers: getAuthHeaders(),
+				body: JSON.stringify({ prompt: aiPrompt, tone: aiTone }),
+			});
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.detail || 'AI 생성 실패');
+			}
+			const data = await response.json();
+			announcementForm = {
+				title: data.draft.title,
+				content: data.draft.content,
+				is_important: data.draft.is_important,
+			};
+			showAiDraft = false;
+			aiPrompt = '';
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'AI 생성 실패');
+		} finally {
+			aiLoading = false;
+		}
 	}
 
 	async function saveAnnouncement() {
@@ -411,6 +450,39 @@
 		<div class="modal-overlay" onclick={closeAnnouncementForm}>
 			<div class="modal" onclick={(e) => e.stopPropagation()}>
 				<h3>{editingAnnouncement ? '공지사항 수정' : '새 공지사항'}</h3>
+
+				<!-- AI Draft Section -->
+				{#if !editingAnnouncement}
+					<div class="ai-section">
+						{#if showAiDraft}
+							<div class="ai-form">
+								<input
+									type="text"
+									bind:value={aiPrompt}
+									placeholder="예: 내일 점검 있음, 새 기능 추가됨"
+								/>
+								<select bind:value={aiTone}>
+									<option value="friendly">😊 친근</option>
+									<option value="formal">📋 공식</option>
+									<option value="urgent">🚨 긴급</option>
+								</select>
+								<button
+									type="button"
+									class="btn ai"
+									onclick={generateAiDraft}
+									disabled={aiLoading}
+								>
+									{aiLoading ? '생성중...' : '✨ 생성'}
+								</button>
+							</div>
+						{:else}
+							<button type="button" class="btn ai-toggle" onclick={() => showAiDraft = true}>
+								🤖 AI로 작성
+							</button>
+						{/if}
+					</div>
+				{/if}
+
 				<form onsubmit={(e) => { e.preventDefault(); saveAnnouncement(); }}>
 					<div class="form-group">
 						<label for="title">제목</label>
@@ -891,5 +963,64 @@
 
 	.btn.save:hover {
 		background: #2ea043;
+	}
+
+	/* AI Section */
+	.ai-section {
+		margin-bottom: 1rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid #30363d;
+	}
+
+	.ai-toggle {
+		width: 100%;
+		padding: 0.5rem;
+		background: rgba(136, 87, 229, 0.2);
+		border: 1px dashed #8957e5;
+		color: #a371f7;
+	}
+
+	.ai-toggle:hover {
+		background: rgba(136, 87, 229, 0.3);
+	}
+
+	.ai-form {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.ai-form input {
+		flex: 1;
+		padding: 0.5rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #f0f6fc;
+		font-size: 0.85rem;
+	}
+
+	.ai-form select {
+		padding: 0.5rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #f0f6fc;
+		font-size: 0.85rem;
+	}
+
+	.btn.ai {
+		padding: 0.5rem 0.75rem;
+		background: #8957e5;
+		color: white;
+		white-space: nowrap;
+	}
+
+	.btn.ai:hover {
+		background: #a371f7;
+	}
+
+	.btn.ai:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 </style>

@@ -397,7 +397,7 @@ def analyze_swing(ticker: str) -> Optional[dict]:
 # ============================================================
 
 def analyze_longterm(ticker: str) -> Optional[dict]:
-    """장기 종목 분석 (3개월+ 보유)"""
+    """장기 종목 분석 (3개월+ 보유) - 연속 점수 체계"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period='1y')
@@ -413,62 +413,86 @@ def analyze_longterm(ticker: str) -> Optional[dict]:
         if market_cap < 10e9:
             return None
 
-        # 장기 점수 계산
-        score = 0.0
-
-        # 시총 (대형주 보너스)
-        if market_cap > 200e9:
-            score += 25  # 메가캡
-        elif market_cap > 100e9:
-            score += 20
-        elif market_cap > 50e9:
-            score += 15
-        else:
-            score += 10
-
-        # 배당 수익률 (핵심)
-        div_yield = info.get('dividendYield', 0) or 0
-        if div_yield > 0.04:
-            score += 25  # 4%+ 고배당
-        elif div_yield > 0.03:
-            score += 20
-        elif div_yield > 0.02:
-            score += 15
-        elif div_yield > 0.01:
-            score += 10
-
-        # P/E 비율 (저평가)
-        pe = info.get('trailingPE', 0) or 0
-        if 8 < pe < 15:
-            score += 20  # 저평가
-        elif 15 <= pe < 25:
-            score += 15  # 적정
-        elif 5 < pe <= 8:
-            score += 10  # 너무 낮으면 주의
-
-        # 1년 수익률
-        if len(hist) >= 252:
-            yearly_return = (hist['Close'].iloc[-1] / hist['Close'].iloc[0] - 1) * 100
-            if yearly_return > 20:
-                score += 15
-            elif yearly_return > 10:
-                score += 10
-            elif yearly_return > 0:
-                score += 5
-
-        # 변동성 (낮을수록 좋음)
-        volatility = hist['Close'].pct_change().std() * 100
-        if volatility < 1.5:
-            score += 15
-        elif volatility < 2.5:
-            score += 10
-
-        if score < 40:
-            return None
-
         # 52주 고/저가
         high_52w = hist['High'].max()
         low_52w = hist['Low'].min()
+
+        # === 연속 점수 체계 (0~100) ===
+        score = 0.0
+        score_breakdown = {}
+
+        # 1. 배당 수익률 (0~25점) - 핵심 지표
+        div_yield = info.get('dividendYield', 0) or 0
+        if div_yield > 0:
+            div_score = min(25, div_yield * 100 * 5)  # 5% → 25점
+        else:
+            div_score = 0
+        score += div_score
+        score_breakdown['dividend'] = round(div_score, 1)
+
+        # 2. P/E 비율 (0~20점) - 10~20이 최적
+        pe = info.get('trailingPE', 0) or 0
+        if 10 <= pe <= 20:
+            pe_score = 20
+        elif 5 < pe < 10:
+            pe_score = 15 - (10 - pe)  # 5→10, 10→15
+        elif 20 < pe <= 30:
+            pe_score = 20 - (pe - 20)  # 20→20, 30→10
+        elif pe > 30:
+            pe_score = max(0, 10 - (pe - 30) * 0.5)
+        else:
+            pe_score = 0
+        score += pe_score
+        score_breakdown['pe'] = round(pe_score, 1)
+
+        # 3. 52주 고점 대비 위치 (0~20점) - 저점 매수 기회
+        range_52w = high_52w - low_52w
+        if range_52w > 0:
+            position = (current_price - low_52w) / range_52w  # 0=저점, 1=고점
+            # 0.3~0.5 구간이 최적 (저점 근처지만 반등 중)
+            if 0.2 <= position <= 0.5:
+                position_score = 20
+            elif position < 0.2:
+                position_score = 15  # 너무 저점 (위험)
+            elif 0.5 < position <= 0.7:
+                position_score = 15
+            else:
+                position_score = 10 - (position - 0.7) * 20  # 고점 근처 감점
+            position_score = max(0, position_score)
+        else:
+            position_score = 10
+        score += position_score
+        score_breakdown['position'] = round(position_score, 1)
+
+        # 4. 1년 수익률 (0~15점)
+        yearly_return = (hist['Close'].iloc[-1] / hist['Close'].iloc[0] - 1) * 100
+        if yearly_return >= 0:
+            return_score = min(15, yearly_return * 0.5)  # 30% → 15점
+        else:
+            return_score = max(0, 10 + yearly_return * 0.3)  # -33% → 0점
+        score += return_score
+        score_breakdown['return'] = round(return_score, 1)
+
+        # 5. 변동성 (0~10점) - 낮을수록 좋음
+        volatility = hist['Close'].pct_change().std() * 100
+        vol_score = max(0, 10 - volatility * 3)  # 3% → 1점
+        score += vol_score
+        score_breakdown['volatility'] = round(vol_score, 1)
+
+        # 6. 연속 배당 여부 (0~10점)
+        div_rate = info.get('dividendRate', 0) or 0
+        payout = info.get('payoutRatio', 0) or 0
+        if div_rate > 0 and 0.2 < payout < 0.8:
+            payout_score = 10  # 건전한 배당
+        elif div_rate > 0:
+            payout_score = 5
+        else:
+            payout_score = 0
+        score += payout_score
+        score_breakdown['payout'] = round(payout_score, 1)
+
+        if score < 35:
+            return None
 
         return {
             'ticker': ticker,
@@ -477,10 +501,13 @@ def analyze_longterm(ticker: str) -> Optional[dict]:
             'current_price': round(current_price, 2),
             'market_cap': market_cap,
             'score': round(score, 1),
+            'score_breakdown': score_breakdown,
             'dividend_yield': round(div_yield * 100, 2) if div_yield and div_yield < 1 else round(div_yield, 2) if div_yield else 0,
             'pe_ratio': round(pe, 1) if pe else None,
+            'yearly_return': round(yearly_return, 1),
+            'position_52w': round((current_price - low_52w) / range_52w * 100, 0) if range_52w > 0 else 50,
             'sector': info.get('sector', 'N/A'),
-            'recommended_entry': round(current_price * 0.97, 2),  # -3%
+            'recommended_entry': round(current_price * 0.97, 2),
             'stop_loss': round(low_52w * 0.95, 2),
             'target': round(high_52w * 0.95, 2),
             'high_52w': round(high_52w, 2),
