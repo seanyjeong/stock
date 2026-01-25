@@ -832,10 +832,45 @@ def render_report_html(ticker: str, data: dict) -> str:
 
     # 7. 피보나치 레벨
     if fib_levels:
+        # 레벨 정렬 및 현재가 위치 계산
+        sorted_levels = sorted(
+            [(k, v) for k, v in fib_levels.items() if isinstance(v, (int, float))],
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        # 현재가가 어느 레벨 사이에 있는지 계산
+        current_fib_pos = ""
+        prev_level = None
+        for i, (level, price_val) in enumerate(sorted_levels):
+            if price <= price_val:
+                if i > 0:
+                    # 이전 레벨과 현재 레벨 사이
+                    current_fib_pos = f"{prev_level[0]} ~ {level} 사이"
+                else:
+                    # 가장 높은 레벨 위
+                    current_fib_pos = f"{level} 위 (고점 돌파)"
+            prev_level = (level, price_val)
+        if not current_fib_pos and sorted_levels:
+            # 가장 낮은 레벨 아래
+            current_fib_pos = f"{sorted_levels[-1][0]} 아래 (저점 이탈)"
+
         fib_rows = ""
-        for level, price_val in sorted(fib_levels.items(), key=lambda x: float(x[0].replace('%', '')) if '%' in str(x[0]) else 0, reverse=True):
-            if isinstance(price_val, (int, float)):
-                fib_rows += f"<tr><td>{level}</td><td>${price_val:.2f}</td><td></td></tr>"
+        for level, price_val in sorted_levels:
+            # 현재가와의 거리 계산
+            diff_pct = ((price - price_val) / price_val * 100) if price_val > 0 else 0
+
+            # 비고 결정
+            remark = ""
+            if abs(diff_pct) < 3:
+                remark = "← 현재가 근접"
+            elif price > price_val and diff_pct < 10:
+                remark = "지지선"
+            elif price < price_val and abs(diff_pct) < 10:
+                remark = "저항선"
+
+            row_class = ' class="highlight"' if abs(diff_pct) < 3 else ""
+            fib_rows += f"<tr{row_class}><td>{level}</td><td>${price_val:.2f}</td><td>{remark}</td></tr>"
 
         html += f"""
     <section>
@@ -844,7 +879,7 @@ def render_report_html(ticker: str, data: dict) -> str:
             <tr><th>레벨</th><th>가격</th><th>비고</th></tr>
             {fib_rows}
         </table>
-        {"<p><strong>현재 위치</strong>: " + current_fib_position + "</p>" if current_fib_position else ""}
+        <p><strong>현재가 위치</strong>: ${price:.2f} ({current_fib_pos})</p>
     </section>
     <hr>
 """
@@ -1086,33 +1121,120 @@ def render_report_html(ticker: str, data: dict) -> str:
 """
 
     # 14. 결론
-    # 등급 계산
-    squeeze_stars = 4 if score >= 60 else 3 if score >= 40 else 2
-    daytrading_stars = 3 if atr_pct > 10 else 2
-    swing_stars = 3 if score >= 40 and rsi < 40 else 2
-    longterm_stars = 1 if market_cap < 100_000_000 else 2
+    # 등급 계산 (10점 만점)
+    # 단타: ATR% 기준 (변동성)
+    if atr_pct >= 25:
+        daytrading_stars = 10
+    elif atr_pct >= 20:
+        daytrading_stars = 9
+    elif atr_pct >= 15:
+        daytrading_stars = 8
+    elif atr_pct >= 12:
+        daytrading_stars = 7
+    elif atr_pct >= 10:
+        daytrading_stars = 6
+    elif atr_pct >= 8:
+        daytrading_stars = 5
+    elif atr_pct >= 6:
+        daytrading_stars = 4
+    elif atr_pct >= 4:
+        daytrading_stars = 3
+    else:
+        daytrading_stars = 2
+
+    # 스윙: 스퀴즈 점수 + RSI 조합
+    swing_base = score // 10  # 0-10
+    if rsi < 30:  # 과매도 보너스
+        swing_stars = min(10, swing_base + 2)
+    elif rsi < 40:
+        swing_stars = min(10, swing_base + 1)
+    elif rsi > 70:  # 과매수 페널티
+        swing_stars = max(1, swing_base - 1)
+    else:
+        swing_stars = swing_base
+    swing_stars = max(1, min(10, swing_stars))
+
+    # 장기: 시가총액 + 재무건전성
+    if market_cap < 50_000_000:  # 나노캡
+        longterm_stars = 1
+    elif market_cap < 100_000_000:
+        longterm_stars = 2
+    elif market_cap < 300_000_000:  # 마이크로캡
+        longterm_stars = 3
+    elif market_cap < 2_000_000_000:  # 스몰캡
+        longterm_stars = 5
+    elif market_cap < 10_000_000_000:  # 미드캡
+        longterm_stars = 7
+    else:  # 라지캡
+        longterm_stars = 9
+    # 현금 > 부채면 +1
+    if total_cash and total_debt and total_cash > total_debt:
+        longterm_stars = min(10, longterm_stars + 1)
 
     # SVG 별 아이콘
-    star_filled = '<svg class="star filled" viewBox="0 0 24 24" width="14" height="14"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
-    star_empty = '<svg class="star empty" viewBox="0 0 24 24" width="14" height="14"><path fill="#d1d5db" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+    star_filled = '<svg class="star filled" viewBox="0 0 24 24" width="12" height="12"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+    star_empty = '<svg class="star empty" viewBox="0 0 24 24" width="12" height="12"><path fill="#d1d5db" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
 
-    def stars_svg(n, max_stars=5):
+    def stars_svg(n, max_stars=10):
+        n = max(0, min(max_stars, int(n)))
         return (star_filled * n) + (star_empty * (max_stars - n))
 
-    total_stars = (squeeze_stars + daytrading_stars + swing_stars) // 3
+    # 종합: 단타 + 스윙 + 장기 평균
+    total_stars = round((daytrading_stars + swing_stars + longterm_stars) / 3)
+
+    # 각 카테고리별 이유 생성
+    daytrading_reasons = []
+    if atr_pct >= 20:
+        daytrading_reasons.append(f"ATR {atr_pct:.1f}% 극심한 변동성")
+    elif atr_pct >= 10:
+        daytrading_reasons.append(f"ATR {atr_pct:.1f}% 높은 변동성")
+    if zero_borrow:
+        daytrading_reasons.append("Zero Borrow 스퀴즈 가능")
+    if score >= 60:
+        daytrading_reasons.append(f"스퀴즈점수 {score} HOT")
+    daytrading_reason = " / ".join(daytrading_reasons) if daytrading_reasons else ""
+
+    swing_reasons = []
+    if rsi < 30:
+        swing_reasons.append(f"RSI {rsi:.0f} 과매도 반등기대")
+    elif rsi < 40:
+        swing_reasons.append(f"RSI {rsi:.0f} 저평가 구간")
+    elif rsi > 70:
+        swing_reasons.append(f"RSI {rsi:.0f} 과매수 주의")
+    if score >= 40:
+        swing_reasons.append(f"스퀴즈점수 {score}")
+    if zero_borrow:
+        swing_reasons.append("숏커버 압박")
+    swing_reason = " / ".join(swing_reasons) if swing_reasons else ""
+
+    longterm_reasons = []
+    if market_cap >= 10_000_000_000:
+        longterm_reasons.append("라지캡 안정성")
+    elif market_cap >= 2_000_000_000:
+        longterm_reasons.append("미드캡 성장+안정")
+    elif market_cap < 100_000_000:
+        longterm_reasons.append("나노캡 고위험")
+    if total_cash and total_debt and total_cash > total_debt:
+        longterm_reasons.append("현금>부채 건전")
+    elif total_debt and total_cash and total_debt > total_cash * 2:
+        longterm_reasons.append("부채비율 높음 주의")
+    longterm_reason = " / ".join(longterm_reasons) if longterm_reasons else mc_label
 
     html += f"""
     <section class="conclusion">
         <h2>결론</h2>
         <table class="info-table">
-            <tr><td>숏스퀴즈</td><td>{stars_svg(squeeze_stars)} <strong>{"Zero Borrow!" if zero_borrow else ""}</strong></td></tr>
-            <tr><td>단타 적합</td><td>{stars_svg(daytrading_stars)} {"변동성 극심" if atr_pct > 20 else ""}</td></tr>
-            <tr><td>스윙 적합</td><td>{stars_svg(swing_stars)}</td></tr>
-            <tr><td>장기 투자</td><td>{stars_svg(longterm_stars)} {mc_label}</td></tr>
+            <tr><td>단타 적합</td><td>{stars_svg(daytrading_stars)} ({daytrading_stars}/10)</td></tr>
+            {"<tr><td></td><td class='reason'>" + daytrading_reason + "</td></tr>" if daytrading_reason else ""}
+            <tr><td>스윙 적합</td><td>{stars_svg(swing_stars)} ({swing_stars}/10)</td></tr>
+            {"<tr><td></td><td class='reason'>" + swing_reason + "</td></tr>" if swing_reason else ""}
+            <tr><td>장기 투자</td><td>{stars_svg(longterm_stars)} ({longterm_stars}/10)</td></tr>
+            {"<tr><td></td><td class='reason'>" + longterm_reason + "</td></tr>" if longterm_reason else ""}
         </table>
 
         <div class="rating-box">
-            <p><strong>최종 등급</strong>: {stars_svg(total_stars)} (5점 만점 중 {total_stars}점)</p>
+            <p><strong>종합 등급</strong>: {stars_svg(total_stars)} ({total_stars}/10)</p>
+            <p style="font-size: 0.8em; color: #9ca3af; margin-top: 5px;">{"🔥 Zero Borrow + 스퀴즈 점수 " + str(score) + "/100" if zero_borrow else "스퀴즈 점수: " + str(score) + "/100"}</p>
         </div>
 
         <div class="key-points">

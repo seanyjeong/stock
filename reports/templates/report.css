@@ -124,6 +124,15 @@ h3 {
     color: #1a1a2e;
 }
 
+.info-table td.reason {
+    font-size: 8pt;
+    font-weight: 400;
+    color: #666;
+    padding-top: 0;
+    padding-bottom: 8px;
+    font-style: italic;
+}
+
 .info-table .highlight {
     color: #dc2626;
     font-weight: 700;

@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import ReportProgress from '$lib/components/ReportProgress.svelte';
 
 	interface WatchlistItem {
 		id: number;
@@ -69,6 +70,16 @@
 	let searchResults = $state<Array<{symbol: string; name: string}>>([]);
 	let isSearching = $state(false);
 	let searchTimeout: ReturnType<typeof setTimeout>;
+
+	// Report generation
+	let showReportProgress = $state(false);
+	let reportJobId = $state('');
+	let reportProgress = $state(0);
+	let reportStep = $state('');
+	let reportStatus = $state<'pending' | 'running' | 'completed' | 'failed'>('pending');
+	let reportError = $state('');
+	let reportTicker = $state('');
+	let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -258,6 +269,117 @@
 		const sign = value >= 0 ? '+' : '';
 		return sign + value.toFixed(1) + '%';
 	}
+
+	// Report generation
+	async function generateReport(ticker: string) {
+		const token = localStorage.getItem('access_token');
+		if (!token) {
+			alert('로그인이 필요합니다');
+			return;
+		}
+
+		reportTicker = ticker;
+		reportProgress = 0;
+		reportStep = '시작 중...';
+		reportStatus = 'pending';
+		reportError = '';
+		showReportProgress = true;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/reports/generate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ ticker, include_portfolio: true })
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.detail || '리포트 생성 실패');
+			}
+
+			const data = await response.json();
+			reportJobId = data.job_id;
+			reportStatus = 'running';
+			startPolling(token);
+		} catch (e) {
+			reportStatus = 'failed';
+			reportError = e instanceof Error ? e.message : '오류 발생';
+		}
+	}
+
+	function startPolling(token: string) {
+		if (pollInterval) clearInterval(pollInterval);
+		pollInterval = setInterval(() => pollStatus(token), 2000);
+	}
+
+	async function pollStatus(token: string) {
+		try {
+			const response = await fetch(`${API_BASE}/api/reports/${reportJobId}/status`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				reportProgress = data.progress;
+				reportStep = data.current_step || '';
+				reportStatus = data.status;
+
+				if (data.status === 'completed' || data.status === 'failed') {
+					if (pollInterval) {
+						clearInterval(pollInterval);
+						pollInterval = null;
+					}
+					if (data.status === 'failed') {
+						reportError = data.error_message || '분석 실패';
+					}
+				}
+			}
+		} catch {
+			// 무시
+		}
+	}
+
+	async function downloadReport() {
+		const token = localStorage.getItem('access_token');
+		if (!token || !reportJobId) return;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/reports/${reportJobId}/download`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+
+			if (response.ok) {
+				const blob = await response.blob();
+				const url = window.URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = url;
+				a.download = `${reportTicker}_report.pdf`;
+				document.body.appendChild(a);
+				a.click();
+				window.URL.revokeObjectURL(url);
+				a.remove();
+			}
+		} catch {
+			alert('다운로드 실패');
+		}
+	}
+
+	function closeReportModal() {
+		showReportProgress = false;
+		if (pollInterval) {
+			clearInterval(pollInterval);
+			pollInterval = null;
+		}
+	}
+
+	onDestroy(() => {
+		if (pollInterval) {
+			clearInterval(pollInterval);
+		}
+	});
 
 	// Filtered watchlist based on selected folder
 	function getFilteredWatchlist(): WatchlistItem[] {
@@ -503,7 +625,8 @@
 						{/if}
 
 						<div class="card-actions">
-							<a href="/stock/{item.ticker}" class="btn-chart">차트 보기</a>
+							<a href="/stock/{item.ticker}" class="btn-chart">차트</a>
+							<button class="btn-report" onclick={() => generateReport(item.ticker)}>리포트</button>
 							<button class="btn-delete" onclick={() => removeFromWatchlist(item)}>삭제</button>
 						</div>
 					</div>
@@ -519,6 +642,17 @@
 		{/if}
 	{/if}
 </div>
+
+{#if showReportProgress}
+	<ReportProgress
+		progress={reportProgress}
+		currentStep={reportStep}
+		status={reportStatus}
+		errorMessage={reportError}
+		onClose={closeReportModal}
+		onDownload={reportStatus === 'completed' ? downloadReport : undefined}
+	/>
+{/if}
 
 <style>
 	.container {
@@ -863,6 +997,21 @@
 
 	.btn-chart:hover {
 		background: #30363d;
+	}
+
+	.btn-report {
+		padding: 0.5rem 0.75rem;
+		background: #1f6feb;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: white;
+		cursor: pointer;
+		font-weight: 500;
+	}
+
+	.btn-report:hover {
+		background: #388bfd;
 	}
 
 	.btn-delete {

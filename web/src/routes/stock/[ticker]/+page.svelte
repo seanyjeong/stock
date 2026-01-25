@@ -76,8 +76,13 @@
 	});
 
 	async function checkWatchlist() {
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
 		try {
-			const response = await fetch(`${API_BASE}/api/watchlist/`, { credentials: 'include' });
+			const response = await fetch(`${API_BASE}/api/watchlist/`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
 			if (response.ok) {
 				const data = await response.json();
 				const tickers = data.items?.map((item: { ticker: string }) => item.ticker) || [];
@@ -89,12 +94,20 @@
 	}
 
 	async function addToWatchlist() {
+		const token = localStorage.getItem('access_token');
+		if (!token) {
+			showToast('로그인이 필요합니다');
+			return;
+		}
+
 		addingToWatchlist = true;
 		try {
 			const response = await fetch(`${API_BASE}/api/watchlist/`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
 				body: JSON.stringify({ ticker })
 			});
 
@@ -330,7 +343,7 @@
 					disabled={addingToWatchlist || isInWatchlist}
 					title={isInWatchlist ? '관심종목에 추가됨' : '관심종목 추가'}
 				>
-					<Icon name="star" size={18} />
+					<Icon name={isInWatchlist ? 'star-filled' : 'star'} size={18} />
 				</button>
 			</div>
 			{#if chartData?.company_name}

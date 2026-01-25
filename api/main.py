@@ -34,9 +34,15 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend access
+# Note: allow_origins=["*"] is NOT compatible with allow_credentials=True
+# Must specify exact origins when using credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[
+        "https://stock-six-phi.vercel.app",  # Vercel production
+        "http://localhost:5173",              # Local dev (Vite)
+        "http://localhost:3000",              # Local dev
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
