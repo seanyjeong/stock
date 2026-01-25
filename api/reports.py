@@ -380,41 +380,47 @@ def render_report_html(ticker: str, data: dict) -> str:
 
     # 가격 정보
     price = safe_get(basic, "price", 0)
-    change_pct = safe_get(basic, "change_percent", 0)
+    change_pct = safe_get(basic, "change_1d", 0)  # 1일 변화율
     change_class = "positive" if change_pct >= 0 else "negative"
     market_cap = safe_get(basic, "market_cap", 0)
     float_shares = safe_get(basic, "float_shares", 0)
-    week_low = safe_get(basic, "fifty_two_week_low", 0)
-    week_high = safe_get(basic, "fifty_two_week_high", 0)
+    week_low = safe_get(basic, "52w_low", 0)  # 실제 키
+    week_high = safe_get(basic, "52w_high", 0)  # 실제 키
 
-    # 숏 데이터
-    short_pct = safe_get(borrow, "short_percent", 0)
-    short_shares = safe_get(borrow, "short_shares", 0)
+    # 숏 데이터 (basic_info에서 가져오기)
+    short_pct = safe_get(basic, "short_pct_float", 0) or 0
+    short_shares = safe_get(basic, "shares_short", 0)
     borrow_rate = safe_get(borrow, "borrow_rate", "N/A")
-    dtc = safe_get(borrow, "days_to_cover", "N/A")
-    zero_borrow = safe_get(borrow, "zero_borrow", False)
+    dtc = safe_get(borrow, "days_to_cover") or safe_get(basic, "short_ratio", "N/A")
+    zero_borrow = safe_get(borrow, "is_zero_borrow", False)  # 실제 키
     avail_shares = safe_get(borrow, "available_shares", 0)
 
     # 기술적
     rsi = safe_get(tech, "rsi", 0)
-    macd_hist = safe_get(tech, "macd_histogram", 0)
-    bb_pct = safe_get(tech, "bb_percent", 0)
-    atr_pct = safe_get(tech, "atr_percent", 0)
+    macd_hist = safe_get(tech, "macd_hist", 0)  # 실제 키
+    bb_pct = safe_get(tech, "bb_position", 0)  # 실제 키
+    atr_pct = safe_get(tech, "atr_pct", 0)  # 실제 키
 
     # 스퀴즈 점수
     score = safe_get(squeeze, "score", 0)
-    grade = safe_get(squeeze, "grade", "N/A")
-    breakdown = safe_get(squeeze, "breakdown", "")
+    # grade 계산 (score 기반)
+    if score >= 60:
+        grade = "HOT"
+    elif score >= 40:
+        grade = "WATCH"
+    else:
+        grade = "COLD"
+    breakdown = safe_get(squeeze, "details", "")  # 실제 키
 
     # 피보나치 레벨
     fib_levels = safe_get(fib, "levels", {})
     if not isinstance(fib_levels, dict): fib_levels = {}
 
-    # SEC 리스크
-    warrant_cnt = safe_get(sec_info, "warrant_count", 0)
-    dilution_cnt = safe_get(sec_info, "dilution_count", 0)
-    debt_cnt = safe_get(sec_info, "debt_count", 0)
-    offering_cnt = safe_get(sec_info, "offering_count", 0)
+    # SEC 리스크 (실제 키)
+    warrant_cnt = safe_get(sec_info, "warrant_mentions", 0)
+    dilution_cnt = safe_get(sec_info, "dilution_mentions", 0)
+    debt_cnt = safe_get(sec_info, "debt_mentions", 0)
+    offering_cnt = safe_get(sec_info, "offering_mentions", 0)
 
     # FTD
     ftd_total = safe_get(ftd, "total_ftd", 0)
