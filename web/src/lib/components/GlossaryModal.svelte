@@ -18,7 +18,7 @@
 	let messages = $state<Message[]>([
 		{
 			role: 'assistant',
-			content: '안녕하세요! 📚 주식 용어가 궁금하면 물어보세요~\n\n예: "숏스퀴즈가 뭐야?", "물타기 뜻", "RSI 해석법"'
+			content: '안뇽! 👋 멋진 으뜸님이 알려주는 주식용어~\n\n뭐든 물어보셈! 📚\n\n예: "숏스퀴즈가 뭐야?", "물타기 뜻", "RSI 해석법"'
 		}
 	]);
 	let inputValue = $state('');
