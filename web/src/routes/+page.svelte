@@ -39,6 +39,8 @@
 
 	let portfolio = $state<PortfolioData | null>(null);
 	let portfolioLoading = $state(true);
+	let portfolioRefreshing = $state(false);
+	let portfolioUpdatedAt = $state<Date | null>(null);
 	let isLoggedIn = $state(false);
 	let isAdmin = $state(false);
 	let blogExpanded = $state(browser ? localStorage.getItem('blogExpanded') !== 'false' : true);
@@ -103,6 +105,7 @@
 			});
 			if (response.ok) {
 				portfolio = await response.json();
+				portfolioUpdatedAt = new Date();
 			} else if (response.status === 401) {
 				localStorage.removeItem('access_token');
 				localStorage.removeItem('user');
@@ -167,6 +170,36 @@
 		return 'neutral';
 	}
 
+	async function refreshPortfolio() {
+		if (portfolioRefreshing) return;
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
+		portfolioRefreshing = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/portfolio/my`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (response.ok) {
+				portfolio = await response.json();
+				portfolioUpdatedAt = new Date();
+			}
+		} catch (e) {
+			console.error('Failed to refresh portfolio:', e);
+		} finally {
+			portfolioRefreshing = false;
+		}
+	}
+
+	function formatUpdatedTime(date: Date | null): string {
+		if (!date) return '';
+		const now = new Date();
+		const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+		if (diff < 60) return '방금 전';
+		if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
+		return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+	}
+
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '-';
 		const date = new Date(dateStr);
@@ -217,7 +250,17 @@
 				</section>
 			{:else if portfolio && portfolio.holdings}
 				<section class="card portfolio-card">
-					<h2><Icon name="wallet" size={20} /> 내 포트폴리오</h2>
+					<div class="portfolio-header">
+						<h2><Icon name="wallet" size={20} /> 내 포트폴리오</h2>
+						<div class="refresh-area">
+							{#if portfolioUpdatedAt}
+								<span class="updated-time">{formatUpdatedTime(portfolioUpdatedAt)}</span>
+							{/if}
+							<button class="refresh-btn" onclick={refreshPortfolio} disabled={portfolioRefreshing}>
+								<Icon name="refresh" size={16} />
+							</button>
+						</div>
+					</div>
 
 					<!-- Summary Cards -->
 					<div class="summary-grid">
@@ -600,6 +643,53 @@
 		font-weight: 600;
 		margin: 0 0 0.875rem;
 		color: #f0f6fc;
+	}
+
+	/* Portfolio Header */
+	.portfolio-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
+	.portfolio-header h2 {
+		margin: 0;
+	}
+
+	.refresh-area {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.updated-time {
+		font-size: 0.7rem;
+		color: #6e7681;
+	}
+
+	.refresh-btn {
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		padding: 0.35rem;
+		cursor: pointer;
+		color: #8b949e;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.15s;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #30363d;
+		color: #58a6ff;
+		border-color: #58a6ff;
+	}
+
+	.refresh-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	/* Summary Grid */

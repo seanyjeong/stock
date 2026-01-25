@@ -67,7 +67,7 @@
 	</div>
 
 	{#if recommendations && recommendations.length > 0}
-		<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">매일 21:30 업데이트</span></p>
+		<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">장 마감 후 업데이트</span></p>
 
 		<div class="rec-list">
 			{#each recommendations as rec}

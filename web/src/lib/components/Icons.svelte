@@ -19,6 +19,13 @@
 		<path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/>
 		<path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>
 	</svg>
+{:else if name === 'refresh'}
+	<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
+		<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+		<path d="M3 3v5h5"/>
+		<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+		<path d="M16 16h5v5"/>
+	</svg>
 {:else if name === 'list'}
 	<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
 		<line x1="8" x2="21" y1="6" y2="6"/>
