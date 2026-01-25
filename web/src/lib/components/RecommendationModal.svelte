@@ -1,5 +1,8 @@
 <script lang="ts">
 	import Icon from './Icons.svelte';
+	import ReportProgress from './ReportProgress.svelte';
+
+	const API_URL = import.meta.env.VITE_API_URL || 'https://stock-api.sean8320.dedyn.io';
 
 	interface SplitEntry {
 		price: number;
@@ -25,6 +28,15 @@
 		split_entries?: SplitEntry[];
 	}
 
+	interface ReportStatus {
+		job_id: string;
+		status: 'pending' | 'running' | 'completed' | 'failed';
+		progress: number;
+		current_step: string | null;
+		error_message: string | null;
+		pdf_path: string | null;
+	}
+
 	interface Props {
 		recommendation: Recommendation | null;
 		onClose: () => void;
@@ -36,6 +48,10 @@
 	let { recommendation, onClose, formatCurrency, onAddToWatchlist, watchlistTickers = [] }: Props = $props();
 
 	let adding = $state(false);
+	let generatingReport = $state(false);
+	let reportStatus = $state<ReportStatus | null>(null);
+	let showReportProgress = $state(false);
+	let pollingInterval: ReturnType<typeof setInterval> | null = null;
 
 	function isInWatchlist(ticker: string): boolean {
 		return watchlistTickers.includes(ticker);
@@ -65,6 +81,131 @@
 		if (rsi > 70) return { label: '과매수', color: '#f85149' };
 		return { label: '중립', color: '#8b949e' };
 	}
+
+	async function startReportGeneration() {
+		if (!recommendation) return;
+
+		const token = localStorage.getItem('access_token');
+		if (!token) {
+			alert('로그인이 필요합니다');
+			return;
+		}
+
+		generatingReport = true;
+		showReportProgress = true;
+
+		try {
+			const res = await fetch(`${API_URL}/api/reports/generate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					ticker: recommendation.ticker,
+					include_portfolio: true
+				})
+			});
+
+			if (!res.ok) {
+				const err = await res.json();
+				throw new Error(err.detail || '리포트 생성 실패');
+			}
+
+			const data = await res.json();
+			reportStatus = {
+				job_id: data.job_id,
+				status: 'running',
+				progress: 0,
+				current_step: '시작',
+				error_message: null,
+				pdf_path: null
+			};
+
+			// 2초마다 폴링 시작
+			startPolling(data.job_id);
+		} catch (e) {
+			generatingReport = false;
+			alert(e instanceof Error ? e.message : '리포트 생성 실패');
+		}
+	}
+
+	function startPolling(jobId: string) {
+		if (pollingInterval) clearInterval(pollingInterval);
+
+		pollingInterval = setInterval(async () => {
+			await checkReportStatus(jobId);
+		}, 2000);
+	}
+
+	async function checkReportStatus(jobId: string) {
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
+		try {
+			const res = await fetch(`${API_URL}/api/reports/${jobId}/status`, {
+				headers: { Authorization: `Bearer ${token}` }
+			});
+
+			if (!res.ok) return;
+
+			const status: ReportStatus = await res.json();
+			reportStatus = status;
+
+			if (status.status === 'completed' || status.status === 'failed') {
+				stopPolling();
+				generatingReport = false;
+			}
+		} catch {
+			// 네트워크 오류 무시
+		}
+	}
+
+	function stopPolling() {
+		if (pollingInterval) {
+			clearInterval(pollingInterval);
+			pollingInterval = null;
+		}
+	}
+
+	async function downloadReport() {
+		if (!reportStatus?.job_id) return;
+
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
+		try {
+			const res = await fetch(`${API_URL}/api/reports/${reportStatus.job_id}/download`, {
+				headers: { Authorization: `Bearer ${token}` }
+			});
+
+			if (!res.ok) throw new Error('다운로드 실패');
+
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `${recommendation?.ticker}_report.pdf`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+		} catch {
+			alert('PDF 다운로드 실패');
+		}
+	}
+
+	function closeReportProgress() {
+		showReportProgress = false;
+		stopPolling();
+	}
+
+	// 컴포넌트 언마운트 시 폴링 정리
+	$effect(() => {
+		return () => {
+			stopPolling();
+		};
+	});
 </script>
 
 {#if recommendation}
@@ -178,6 +319,14 @@
 			{/if}
 
 			<div class="modal-footer">
+				<button
+					class="btn-report"
+					onclick={startReportGeneration}
+					disabled={generatingReport}
+				>
+					<Icon name="file" size={16} />
+					{generatingReport ? '생성 중...' : '리포트'}
+				</button>
 				{#if onAddToWatchlist}
 					<button
 						class="btn-watchlist"
@@ -200,6 +349,17 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+{#if showReportProgress && reportStatus}
+	<ReportProgress
+		progress={reportStatus.progress}
+		currentStep={reportStatus.current_step || ''}
+		status={reportStatus.status}
+		errorMessage={reportStatus.error_message || undefined}
+		onClose={closeReportProgress}
+		onDownload={reportStatus.status === 'completed' ? downloadReport : undefined}
+	/>
 {/if}
 
 <style>
@@ -443,6 +603,32 @@
 		border-top: 1px solid #21262d;
 		display: flex;
 		gap: 0.5rem;
+	}
+
+	.btn-report {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		flex: 1;
+		padding: 0.75rem;
+		background: #8b5cf6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-report:hover:not(:disabled) {
+		background: #7c3aed;
+	}
+
+	.btn-report:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.btn-watchlist {

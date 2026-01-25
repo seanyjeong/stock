@@ -22,6 +22,7 @@ from api.indicators import router as indicators_router
 from api.chart import router as chart_router
 from api.profile import router as profile_router
 from api.realtime import router as realtime_router
+from api.reports import router as reports_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ app.include_router(indicators_router)
 app.include_router(chart_router)
 app.include_router(profile_router)
 app.include_router(realtime_router)
+app.include_router(reports_router)
 
 
 @app.exception_handler(HTTPException)

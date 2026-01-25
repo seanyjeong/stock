@@ -1,0 +1,301 @@
+/* Daily Stock Story - PDF Report Styles */
+
+@page {
+    size: A4;
+    margin: 2cm 1.5cm;
+
+    @top-center {
+        content: "Daily Stock Story";
+        font-size: 10pt;
+        color: #666;
+    }
+
+    @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-size: 10pt;
+        color: #666;
+    }
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #fff;
+}
+
+.report {
+    max-width: 100%;
+    padding: 0;
+}
+
+/* Header */
+.report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #1a1a2e;
+    margin-bottom: 20px;
+}
+
+.logo {
+    font-size: 18pt;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.report-date {
+    font-size: 10pt;
+    color: #666;
+}
+
+/* Titles */
+.ticker-title {
+    font-size: 32pt;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 5px;
+}
+
+.company-name {
+    font-size: 14pt;
+    color: #666;
+    margin-bottom: 25px;
+}
+
+/* Sections */
+section {
+    margin-bottom: 25px;
+    page-break-inside: avoid;
+}
+
+h2 {
+    font-size: 14pt;
+    font-weight: 600;
+    color: #1a1a2e;
+    border-left: 4px solid #3b82f6;
+    padding-left: 10px;
+    margin-bottom: 15px;
+}
+
+h3 {
+    font-size: 12pt;
+    font-weight: 600;
+    color: #333;
+    margin: 15px 0 10px;
+}
+
+/* Tables */
+.info-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 10px;
+}
+
+.info-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.info-table td:first-child {
+    font-weight: 500;
+    color: #666;
+    width: 40%;
+}
+
+.info-table td:last-child {
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.fib-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.fib-table th,
+.fib-table td {
+    padding: 6px 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.fib-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #666;
+}
+
+/* Price Box */
+.price-box {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 15px;
+}
+
+.current-price {
+    font-size: 28pt;
+    font-weight: 700;
+}
+
+.change {
+    font-size: 14pt;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 5px;
+}
+
+.change.positive {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+.change.negative {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+/* Squeeze Score */
+.score-box {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 10px;
+}
+
+.score {
+    font-size: 36pt;
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.grade {
+    font-size: 14pt;
+    font-weight: 600;
+    padding: 6px 15px;
+    border-radius: 20px;
+}
+
+.grade-hot {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.grade-watch {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.grade-cold {
+    background: #e5e7eb;
+    color: #6b7280;
+}
+
+.score-breakdown {
+    font-size: 10pt;
+    color: #666;
+    line-height: 1.8;
+}
+
+/* Portfolio Section */
+.portfolio-section {
+    background: #f0fdf4;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #86efac;
+}
+
+.portfolio-section h2 {
+    border-left-color: #22c55e;
+}
+
+/* AI Section */
+.ai-section {
+    background: #f8fafc;
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+}
+
+.ai-section h2 {
+    border-left-color: #8b5cf6;
+}
+
+.ai-summary {
+    font-size: 11pt;
+    color: #374151;
+    margin-bottom: 15px;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    border-left: 3px solid #8b5cf6;
+}
+
+.strengths, .weaknesses {
+    margin: 0 0 10px 20px;
+    font-size: 10pt;
+}
+
+.strengths li {
+    color: #059669;
+    margin-bottom: 5px;
+}
+
+.weaknesses li {
+    color: #dc2626;
+    margin-bottom: 5px;
+}
+
+.strategy {
+    font-size: 10pt;
+    color: #374151;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    border: 1px dashed #cbd5e1;
+}
+
+/* Footer */
+.report-footer {
+    margin-top: 30px;
+    padding-top: 15px;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+    font-size: 9pt;
+    color: #9ca3af;
+}
+
+.report-footer p {
+    margin-bottom: 5px;
+}
+
+/* Print adjustments */
+@media print {
+    body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    section {
+        page-break-inside: avoid;
+    }
+
+    .ai-section {
+        page-break-before: auto;
+    }
+}

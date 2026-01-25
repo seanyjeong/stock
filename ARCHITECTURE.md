@@ -346,6 +346,26 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | p256dh | text | 암호화 키 |
 | auth | text | 인증 키 |
 
+### 리포트
+
+#### report_jobs
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| job_id | uuid | 작업 고유 ID (UNIQUE) |
+| user_id | integer | FK → users |
+| ticker | varchar(10) | 종목 티커 |
+| status | varchar(20) | pending/running/completed/failed |
+| progress | integer | 진행률 (0-100%) |
+| current_step | varchar(100) | 현재 분석 단계 |
+| result_data | jsonb | 분석 결과 데이터 |
+| pdf_path | text | 생성된 PDF 경로 |
+| error_message | text | 실패 시 에러 메시지 |
+| include_portfolio | boolean | 포트폴리오 포함 여부 |
+| holding_info | jsonb | 보유 정보 (포함 시) |
+| created_at | timestamp | 생성일 |
+| completed_at | timestamp | 완료일 |
+
 ---
 
 ## API 엔드포인트
@@ -387,6 +407,19 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/blog` | 블로그 포스트 |
 | GET | `/api/announcements/` | 공지사항 |
 | POST | `/api/announcements/draft` | **AI 공지사항 초안** (Gemini, 관리자) |
+
+### 리포트
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/reports/generate` | 리포트 생성 시작 (백그라운드) |
+| GET | `/api/reports/{job_id}/status` | 진행률 조회 (2초 폴링) |
+| GET | `/api/reports/{job_id}/download` | PDF 다운로드 |
+| GET | `/api/reports/history` | 내 리포트 목록 |
+
+> **리포트 생성 플로우:**
+> 1. POST /generate → job_id 반환
+> 2. GET /status 폴링 (2초 간격) → progress 0-100%
+> 3. status='completed' 시 GET /download로 PDF 다운로드
 
 ### 실시간 가격 (하이브리드)
 | Method | Endpoint | 설명 |
@@ -673,11 +706,20 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v2.2.2
+- **프론트엔드**: v2.5.0
 - **deep_analyzer**: v4 (나스닥의 신)
 - **문서 업데이트**: 2026-01-25
 
 ## 변경 이력
+
+### v2.5.0 (2026-01-25)
+- 리포트 생성 + PDF 다운로드 기능
+  - 추천 종목에서 "리포트" 버튼 클릭 → 백그라운드 분석
+  - 원형 프로그레스바로 진행률 표시 (22단계)
+  - WeasyPrint로 PDF 생성
+  - 포트폴리오 보유 시 맞춤 전략 포함
+- report_jobs 테이블 추가
+- /api/reports/* 엔드포인트 추가
 
 ### deep_analyzer v4 (2026-01-25)
 - 섹터별 특화 뉴스 (바이오텍/AI·Tech/에너지/일반 자동 감지)
