@@ -271,14 +271,14 @@
 
 	<div class="header">
 		<div class="ticker-info">
-			<div class="ticker-with-name">
+			<div class="ticker-price-row">
 				<h1>{ticker}</h1>
-				{#if chartData?.company_name}
-					<span class="company-name">{chartData.company_name}</span>
+				{#if chartData}
+					<span class="current-price">{formatCurrency(chartData.current_price)}</span>
 				{/if}
 			</div>
-			{#if chartData}
-				<span class="current-price">{formatCurrency(chartData.current_price)}</span>
+			{#if chartData?.company_name}
+				<span class="company-name">{chartData.company_name}</span>
 			{/if}
 		</div>
 		<div class="period-selector">
@@ -368,14 +368,14 @@
 
 	.ticker-info {
 		display: flex;
-		align-items: baseline;
-		gap: 0.75rem;
-	}
-
-	.ticker-with-name {
-		display: flex;
 		flex-direction: column;
 		gap: 0.1rem;
+	}
+
+	.ticker-price-row {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
 	}
 
 	h1 {
@@ -384,14 +384,14 @@
 		color: #58a6ff;
 	}
 
-	.company-name {
-		font-size: 0.75rem;
-		color: #8b949e;
-	}
-
 	.current-price {
 		font-size: 1.25rem;
 		font-weight: 600;
+	}
+
+	.company-name {
+		font-size: 0.75rem;
+		color: #8b949e;
 	}
 
 	.period-selector {
