@@ -7,6 +7,7 @@
 	import ProfileRecommendations from '$lib/components/ProfileRecommendations.svelte';
 	import RegSHOBadge from '$lib/components/RegSHOBadge.svelte';
 	import Icon from '$lib/components/Icons.svelte';
+	import GlossaryModal from '$lib/components/GlossaryModal.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -44,6 +45,7 @@
 	let isLoggedIn = $state(false);
 	let isAdmin = $state(false);
 	let blogExpanded = $state(browser ? localStorage.getItem('blogExpanded') !== 'false' : true);
+	let showGlossaryModal = $state(false);
 
 	// 섹션 접기/펼치기 상태 (localStorage 저장)
 	let taxExpanded = $state(browser ? localStorage.getItem('taxExpanded') !== 'false' : true);
@@ -364,7 +366,12 @@
 
 <div class="container">
 	<header>
-		<h1><Icon name="chart" size={28} class="header-icon" /> 달러농장</h1>
+		<div class="header-top">
+			<h1><Icon name="chart" size={28} class="header-icon" /> 달러농장</h1>
+			<button class="glossary-btn" onclick={() => showGlossaryModal = true}>
+				<Icon name="book" size={16} /> 용어사전
+			</button>
+		</div>
 		<p class="tagline">미국 주식 포트폴리오 트래커</p>
 	</header>
 
@@ -740,6 +747,10 @@
 			</div>
 		</div>
 	{/if}
+
+	{#if showGlossaryModal}
+		<GlossaryModal onClose={() => showGlossaryModal = false} />
+	{/if}
 </div>
 
 <style>
@@ -764,6 +775,14 @@
 		padding-top: 0.5rem;
 	}
 
+	.header-top {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		position: relative;
+	}
+
 	h1 {
 		display: flex;
 		align-items: center;
@@ -773,6 +792,27 @@
 		font-weight: 700;
 		margin: 0;
 		color: #f0f6fc;
+	}
+
+	.glossary-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.4rem 0.75rem;
+		background: rgba(88, 166, 255, 0.15);
+		border: 1px solid #58a6ff;
+		border-radius: 8px;
+		color: #58a6ff;
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.15s;
+		position: absolute;
+		right: 0;
+	}
+
+	.glossary-btn:hover {
+		background: rgba(88, 166, 255, 0.25);
 	}
 
 	.tagline {

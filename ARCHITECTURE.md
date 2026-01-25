@@ -271,6 +271,19 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | is_active | boolean | 활성 여부 |
 | created_by | integer | FK → users |
 
+#### glossary_terms
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| term | varchar(100) | 용어명 (UNIQUE) |
+| definition | text | 정의 |
+| example | text | 예시 |
+| category | varchar(50) | 카테고리 (기본 용어, 기술적 분석, 숏스퀴즈 등) |
+| related_terms | text[] | 관련 용어 배열 |
+| embedding | vector(768) | Gemini 임베딩 (pgvector) |
+| created_at | timestamp | 생성일 |
+| updated_at | timestamp | 수정일 |
+
 ### 스캐너 시스템 (v2)
 
 #### news_mentions
@@ -454,6 +467,22 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/notifications/settings` | 알림 설정 조회 |
 | PUT | `/api/notifications/settings` | 알림 설정 변경 |
 | POST | `/api/notifications/subscribe` | 푸시 구독 |
+
+### 용어 사전 (Glossary)
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/glossary/categories` | 카테고리 목록 |
+| GET | `/api/glossary/terms/{category}` | 카테고리별 용어 목록 |
+| GET | `/api/glossary/search?q={query}` | 시맨틱 검색 (pgvector) |
+| POST | `/api/glossary/ask` | AI 질문 답변 (Gemini) |
+| POST | `/api/glossary/terms` | 용어 추가 (관리자) |
+| DELETE | `/api/glossary/terms/{id}` | 용어 삭제 (관리자) |
+| POST | `/api/glossary/embed-all` | 모든 용어 임베딩 생성 (관리자) |
+
+> **시맨틱 검색 로직:**
+> - Gemini text-embedding-004로 768차원 벡터 생성
+> - pgvector 코사인 유사도로 유사 용어 검색
+> - Gemini 2.0 Flash로 초보자 눈높이 답변 생성
 
 ---
 

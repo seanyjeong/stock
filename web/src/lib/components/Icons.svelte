@@ -184,4 +184,8 @@
 		<line x1="12" x2="12" y1="16" y2="12"/>
 		<line x1="12" x2="12.01" y1="8" y2="8"/>
 	</svg>
+{:else if name === 'send'}
+	<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class={className}>
+		<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+	</svg>
 {/if}
