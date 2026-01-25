@@ -618,11 +618,13 @@
 
 					<p class="rec-update-time">
 						{#if selectedRecType === 'day_trade'}
-							장 시작 전 업데이트
+							🕐 프리마켓 1시간 전 (17:30 KST)
+						{:else if selectedRecType === 'swing'}
+							🕐 장 마감 후 (09:00 KST)
 						{:else}
-							장 마감 후 업데이트
+							🕐 장 마감 후 (09:05 KST)
 						{/if}
-						{#if profileRecsUpdated}• {formatDate(profileRecsUpdated)}{/if}
+						{#if profileRecsUpdated} • 최종: {formatDate(profileRecsUpdated)}{/if}
 					</p>
 
 					<ProfileRecommendations
