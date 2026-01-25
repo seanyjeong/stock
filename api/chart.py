@@ -13,15 +13,46 @@ router = APIRouter(prefix="/api/chart", tags=["chart"])
 
 
 def get_company_name(ticker: str) -> str | None:
-    """DB에서 회사명 조회"""
+    """DB에서 회사명 조회, 없으면 yfinance에서 가져와서 저장"""
+    ticker = ticker.upper()
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT company_name FROM ticker_info WHERE ticker = %s", (ticker.upper(),))
+        cur.execute("SELECT company_name FROM ticker_info WHERE ticker = %s", (ticker,))
         row = cur.fetchone()
+
+        if row and row["company_name"]:
+            cur.close()
+            conn.close()
+            return row["company_name"]
+
+        # DB에 없으면 yfinance에서 가져오기
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            company_name = info.get("longName") or info.get("shortName")
+
+            if company_name:
+                # DB에 저장
+                cur.execute("""
+                    INSERT INTO ticker_info (ticker, company_name, sector, industry, updated_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    ON CONFLICT (ticker) DO UPDATE SET
+                        company_name = EXCLUDED.company_name,
+                        sector = EXCLUDED.sector,
+                        industry = EXCLUDED.industry,
+                        updated_at = NOW()
+                """, (ticker, company_name, info.get("sector"), info.get("industry")))
+                conn.commit()
+                cur.close()
+                conn.close()
+                return company_name
+        except:
+            pass
+
         cur.close()
         conn.close()
-        return row["company_name"] if row else None
+        return None
     except:
         return None
 
