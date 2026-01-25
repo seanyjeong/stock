@@ -461,19 +461,21 @@
 									bind:value={aiPrompt}
 									placeholder="예: 내일 점검 있음, 새 기능 추가됨"
 								/>
-								<select bind:value={aiTone}>
-									<option value="friendly">😊 친근</option>
-									<option value="formal">📋 공식</option>
-									<option value="urgent">🚨 긴급</option>
-								</select>
-								<button
-									type="button"
-									class="btn ai"
-									onclick={generateAiDraft}
-									disabled={aiLoading}
-								>
-									{aiLoading ? '생성중...' : '✨ 생성'}
-								</button>
+								<div class="ai-form-row">
+									<select bind:value={aiTone}>
+										<option value="friendly">😊 친근</option>
+										<option value="formal">📋 공식</option>
+										<option value="urgent">🚨 긴급</option>
+									</select>
+									<button
+										type="button"
+										class="btn ai"
+										onclick={generateAiDraft}
+										disabled={aiLoading}
+									>
+										{aiLoading ? '생성중...' : '✨ 생성'}
+									</button>
+								</div>
 							</div>
 						{:else}
 							<button type="button" class="btn ai-toggle" onclick={() => showAiDraft = true}>
@@ -986,21 +988,28 @@
 
 	.ai-form {
 		display: flex;
+		flex-direction: column;
 		gap: 0.5rem;
 	}
 
 	.ai-form input {
-		flex: 1;
-		padding: 0.5rem;
+		width: 100%;
+		padding: 0.75rem;
 		background: #0d1117;
 		border: 1px solid #30363d;
 		border-radius: 6px;
 		color: #f0f6fc;
-		font-size: 0.85rem;
+		font-size: 0.9rem;
+	}
+
+	.ai-form-row {
+		display: flex;
+		gap: 0.5rem;
 	}
 
 	.ai-form select {
-		padding: 0.5rem;
+		flex: 1;
+		padding: 0.75rem;
 		background: #0d1117;
 		border: 1px solid #30363d;
 		border-radius: 6px;
@@ -1009,7 +1018,8 @@
 	}
 
 	.btn.ai {
-		padding: 0.5rem 0.75rem;
+		flex: 1;
+		padding: 0.75rem;
 		background: #8957e5;
 		color: white;
 		white-space: nowrap;

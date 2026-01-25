@@ -263,7 +263,7 @@ async def generate_announcement_draft(
         "urgent": "긴급하고 중요한 느낌의 톤"
     }
 
-    system_prompt = f"""당신은 '달러농장' 미국주식 포트폴리오 앱의 공지사항 작성자입니다.
+    system_prompt = f"""당신은 '달러농장' 미국주식 포트폴리오 웹앱의 공지사항 작성자입니다.
 
 규칙:
 1. {tone_guide.get(draft.tone, tone_guide['friendly'])}으로 작성
@@ -271,6 +271,11 @@ async def generate_announcement_draft(
 3. 본문은 2~4문장으로 간결하게
 4. 사용자에게 필요한 액션이 있으면 명확히 안내
 5. 한국어로 작성
+
+중요:
+- 이 서비스는 웹앱(SaaS)입니다. 새로고침만 하면 자동 반영됩니다.
+- 절대 "앱스토어", "플레이스토어", "업데이트", "앱 업데이트" 언급 금지
+- "새로고침하면 적용됩니다" 또는 언급 없이 작성
 
 JSON 형식으로만 응답:
 {{"title": "제목", "content": "본문 내용", "is_important": true/false}}
