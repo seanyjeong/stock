@@ -409,43 +409,45 @@ async def get_recommendations(authorization: str = Header(None)):
             import json
             scan_results = scan_row["results"] if isinstance(scan_row["results"], list) else json.loads(scan_row["results"])
 
-            # 성향별 정렬 키 선택
+            def get_top_picks(items, score_key, entry_key, limit=5):
+                """성향별 상위 종목 추출"""
+                sorted_items = sorted(items, key=lambda x: -x.get(score_key, 0))
+                picks = []
+                for item in sorted_items[:limit]:
+                    picks.append({
+                        "ticker": item.get("ticker"),
+                        "company_name": item.get("company_name", item.get("ticker")),
+                        "current_price": item.get("current_price"),
+                        "score": item.get(score_key, 0),
+                        "recommended_entry": item.get(entry_key),
+                        "stop_loss": item.get("stop_loss"),
+                        "target": item.get("target"),
+                        "rsi": item.get("rsi"),
+                        "macd_cross": item.get("macd_cross"),
+                        "news_score": item.get("news_score", 0),
+                        "sector": item.get("sector", "Unknown"),
+                        "recommendation_reason": item.get("recommendation_reason", ""),
+                        "rating": item.get("rating", ""),
+                        "rr_ratio": item.get("rr_ratio", 0),
+                        "split_entries": item.get("split_entries", [])
+                    })
+                return picks
+
+            # 모든 성향별 추천 (토글용)
+            result["all_recommendations"] = {
+                "day_trade": get_top_picks(scan_results, "day_trade_score", "entry_aggressive"),
+                "swing": get_top_picks(scan_results, "swing_score", "entry_balanced"),
+                "longterm": get_top_picks(scan_results, "longterm_score", "entry_conservative")
+            }
+
+            # 기존 호환: 사용자 프로필에 맞는 추천
             if profile_type == "aggressive":
-                score_key = "day_trade_score"
-                entry_key = "entry_aggressive"
+                result["recommendations"] = result["all_recommendations"]["day_trade"]
             elif profile_type == "conservative":
-                score_key = "longterm_score"
-                entry_key = "entry_conservative"
-            else:  # balanced
-                score_key = "swing_score"
-                entry_key = "entry_balanced"
+                result["recommendations"] = result["all_recommendations"]["longterm"]
+            else:
+                result["recommendations"] = result["all_recommendations"]["swing"]
 
-            # 점수순 정렬
-            sorted_results = sorted(scan_results, key=lambda x: -x.get(score_key, 0))
-
-            # 상위 5개
-            top_picks = []
-            for item in sorted_results[:5]:
-                top_picks.append({
-                    "ticker": item.get("ticker"),
-                    "company_name": item.get("company_name", item.get("ticker")),
-                    "current_price": item.get("current_price"),
-                    "score": item.get(score_key, 0),
-                    "recommended_entry": item.get(entry_key),
-                    "stop_loss": item.get("stop_loss"),
-                    "target": item.get("target"),
-                    "rsi": item.get("rsi"),
-                    "macd_cross": item.get("macd_cross"),
-                    "news_score": item.get("news_score", 0),
-                    "sector": item.get("sector", "Unknown"),
-                    # Phase 3 새 필드
-                    "recommendation_reason": item.get("recommendation_reason", ""),
-                    "rating": item.get("rating", ""),
-                    "rr_ratio": item.get("rr_ratio", 0),
-                    "split_entries": item.get("split_entries", [])
-                })
-
-            result["recommendations"] = top_picks
             result["created_at"] = scan_row["created_at"].isoformat() if scan_row["created_at"] else None
 
         # 3. 기존 추천도 유지 (fallback)

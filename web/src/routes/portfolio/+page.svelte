@@ -429,10 +429,11 @@
 			{#if lastRealtimeUpdate}
 				<div class="realtime-status">
 					<span class="realtime-indicator"></span>
-					<span class="realtime-text">실시간</span>
+					<span class="realtime-text">10초 자동갱신</span>
 					<span class="realtime-time">
 						{lastRealtimeUpdate.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
 					</span>
+					<span class="realtime-note">(참고용)</span>
 				</div>
 			{/if}
 			<div class="summary card">
@@ -1128,5 +1129,10 @@
 
 	.realtime-time {
 		color: #8b949e;
+	}
+
+	.realtime-note {
+		color: #f0883e;
+		font-size: 0.7rem;
 	}
 </style>

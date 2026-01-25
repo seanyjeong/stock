@@ -63,6 +63,15 @@
 	let profileType = $state<string>('balanced');
 	let profileRecsUpdated = $state<string | null>(null);
 
+	// 토글용 모든 추천
+	interface AllRecs {
+		day_trade: ProfileRec[];
+		swing: ProfileRec[];
+		longterm: ProfileRec[];
+	}
+	let allRecs = $state<AllRecs | null>(null);
+	let selectedRecType = $state<'day_trade' | 'swing' | 'longterm'>('swing');
+
 	$effect(() => {
 		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
 	});
@@ -128,6 +137,14 @@
 				profileType = recData.profile_type || 'balanced';
 				profileRecs = recData.recommendations || [];
 				profileRecsUpdated = recData.created_at || null;
+				// 토글용 모든 추천 저장
+				if (recData.all_recommendations) {
+					allRecs = recData.all_recommendations;
+					// 사용자 프로필에 맞는 초기 선택
+					if (profileType === 'aggressive') selectedRecType = 'day_trade';
+					else if (profileType === 'conservative') selectedRecType = 'longterm';
+					else selectedRecType = 'swing';
+				}
 			}
 		} catch (e) {
 			console.error('Failed to load profile recommendations:', e);
@@ -414,7 +431,49 @@
 			{/if}
 
 			<!-- Profile-based Recommendations (logged in users) -->
-			{#if isLoggedIn && profileRecs.length > 0}
+			{#if isLoggedIn && allRecs}
+				<section class="card rec-section">
+					<div class="rec-header-row">
+						<h2><Icon name="trending-up" size={20} /> 종목 추천</h2>
+						<div class="rec-toggle">
+							<button
+								class="toggle-btn"
+								class:active={selectedRecType === 'day_trade'}
+								onclick={() => selectedRecType = 'day_trade'}
+							>
+								🔥 단타
+							</button>
+							<button
+								class="toggle-btn"
+								class:active={selectedRecType === 'swing'}
+								onclick={() => selectedRecType = 'swing'}
+							>
+								⚖️ 스윙
+							</button>
+							<button
+								class="toggle-btn"
+								class:active={selectedRecType === 'longterm'}
+								onclick={() => selectedRecType = 'longterm'}
+							>
+								🛡️ 장기
+							</button>
+						</div>
+					</div>
+
+					<p class="rec-update-time">장 마감 후 업데이트 {#if profileRecsUpdated}• {formatDate(profileRecsUpdated)}{/if}</p>
+
+					<ProfileRecommendations
+						profileType={selectedRecType === 'day_trade' ? 'aggressive' : selectedRecType === 'longterm' ? 'conservative' : 'balanced'}
+						recommendations={allRecs[selectedRecType] || []}
+						createdAt={profileRecsUpdated}
+						{formatCurrency}
+						{formatDate}
+						showHeader={false}
+					/>
+
+					<p class="investment-disclaimer">⚠️ 투자 판단과 책임은 본인에게 있습니다</p>
+				</section>
+			{:else if isLoggedIn && profileRecs.length > 0}
 				<ProfileRecommendations
 					{profileType}
 					recommendations={profileRecs}
@@ -1431,5 +1490,70 @@
 
 	.disclaimer-list strong {
 		color: #f0f6fc;
+	}
+
+	/* 추천 토글 스타일 */
+	.rec-section {
+		padding: 1rem;
+	}
+
+	.rec-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.rec-header-row h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0;
+		font-size: 1rem;
+	}
+
+	.rec-toggle {
+		display: flex;
+		gap: 0.25rem;
+		background: #21262d;
+		border-radius: 8px;
+		padding: 0.25rem;
+	}
+
+	.toggle-btn {
+		padding: 0.375rem 0.75rem;
+		border: none;
+		background: transparent;
+		color: #8b949e;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.75rem;
+		transition: all 0.2s;
+	}
+
+	.toggle-btn:hover {
+		background: #30363d;
+	}
+
+	.toggle-btn.active {
+		background: #238636;
+		color: white;
+	}
+
+	.rec-update-time {
+		font-size: 0.7rem;
+		color: #6e7681;
+		margin: 0 0 0.75rem;
+	}
+
+	.investment-disclaimer {
+		font-size: 0.7rem;
+		color: #f0883e;
+		text-align: center;
+		margin: 0.75rem 0 0;
+		padding-top: 0.75rem;
+		border-top: 1px solid #30363d;
 	}
 </style>

@@ -33,9 +33,10 @@
 		createdAt?: string | null;
 		formatCurrency: (value: number, currency?: 'USD' | 'KRW') => string;
 		formatDate: (dateStr: string | null) => string;
+		showHeader?: boolean;
 	}
 
-	let { profileType, recommendations, createdAt, formatCurrency, formatDate }: Props = $props();
+	let { profileType, recommendations, createdAt, formatCurrency, formatDate, showHeader = true }: Props = $props();
 
 	let selectedRecommendation = $state<ProfileRecommendation | null>(null);
 
@@ -58,16 +59,20 @@
 	}
 </script>
 
-<section class="card">
-	<div class="header">
-		<h2><Icon name="trending-up" size={20} /> 맞춤 추천</h2>
-		<span class="profile-badge" style="--badge-color: {getProfileInfo().color}">
-			{getProfileInfo().emoji} {getProfileInfo().label}
-		</span>
-	</div>
+<section class={showHeader ? 'card' : ''}>
+	{#if showHeader}
+		<div class="header">
+			<h2><Icon name="trending-up" size={20} /> 맞춤 추천</h2>
+			<span class="profile-badge" style="--badge-color: {getProfileInfo().color}">
+				{getProfileInfo().emoji} {getProfileInfo().label}
+			</span>
+		</div>
+	{/if}
 
 	{#if recommendations && recommendations.length > 0}
-		<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">장 마감 후 업데이트</span></p>
+		{#if showHeader}
+			<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">장 마감 후 업데이트</span></p>
+		{/if}
 
 		<div class="rec-list">
 			{#each recommendations as rec}

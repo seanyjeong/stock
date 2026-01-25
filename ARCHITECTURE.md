@@ -385,7 +385,7 @@ sudo journalctl -u stock-api -f    # 로그 확인
 |--------|----------|------|
 | GET | `/api/regsho` | RegSHO 목록 |
 | GET | `/api/squeeze` | 스퀴즈 분석 |
-| GET | `/api/recommendations` | 추천 종목 |
+| GET | `/api/recommendations` | 추천 종목 (all_recommendations: 단타/스윙/장기) |
 | GET | `/api/blog` | 블로그 포스트 |
 | GET | `/api/announcements/` | 공지사항 |
 
