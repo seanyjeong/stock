@@ -388,14 +388,21 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/recommendations` | 추천 종목 (all_recommendations: 단타/스윙/장기) |
 | GET | `/api/blog` | 블로그 포스트 |
 | GET | `/api/announcements/` | 공지사항 |
+| POST | `/api/announcements/draft` | **AI 공지사항 초안** (Gemini, 관리자) |
 
-### 실시간 가격 (Finnhub)
+### 실시간 가격 (하이브리드)
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| GET | `/realtime/prices?tickers=AAPL,TSLA` | 실시간 가격 (10초 캐싱) |
+| GET | `/realtime/hybrid?tickers=AAPL,TSLA` | **하이브리드 가격** (정규장: Finnhub, 장외: yfinance) |
+| GET | `/realtime/prices?tickers=AAPL,TSLA` | Finnhub 전용 (10초 캐싱) |
 | GET | `/realtime/quote/{ticker}` | 단일 종목 시세 |
+| GET | `/realtime/market-status` | 현재 시장 상태 (정규/프리/애프터/마감) |
+| GET | `/realtime/dst-status` | 섬머타임 상태 + 전환 7일전 경고 |
 
-> **Rate Limit:** Finnhub 무료 60콜/분, 10초 캐싱으로 회피
+> **하이브리드 로직:**
+> - 정규장 (KST 23:30~06:00): Finnhub 실시간 (10초 캐싱)
+> - 장외 (프리/애프터/마감): yfinance (60초 캐싱)
+> - 주말/마감 시 애프터마켓 가격 우선 사용
 
 ### 관심종목
 | Method | Endpoint | 설명 |
@@ -620,15 +627,23 @@ except Exception as e:
 
 ## CLI 분석 도구
 
-### deep_analyzer.py (v3)
-**초정밀 주식 분석기** - 숏스퀴즈 전문 분석 + Gemini AI
+### deep_analyzer.py (v4) - 나스닥의 신 에디션 🔥
+**초정밀 주식 분석기** - 숏스퀴즈 + 섹터별 특화 + Gemini AI
 
 ```bash
 # 사용법
 uv run python deep_analyzer.py BNAI          # AI 분석 포함
 uv run python deep_analyzer.py BNAI --no-ai  # AI 스킵 (빠름)
-uv run python deep_analyzer.py BNAI --normal # 일반 분석 모드 강제
+uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ```
+
+**v4 신규 기능:**
+| 기능 | 설명 |
+|------|------|
+| **섹터별 뉴스** | Biotech/AI·Tech/에너지/일반 자동 분류 |
+| **바이오텍 촉매** | FDA Fast Track/Breakthrough, ClinicalTrials.gov 연동 |
+| **8-K 이벤트 파싱** | FDA 승인, 임상결과, 계약, 유증 등 자동 분류 |
+| **뉴스 필터** | 최근 60일 기사만 (구글뉴스 백업) |
 
 **분석 항목:**
 | 구분 | 항목 |
@@ -644,6 +659,9 @@ uv run python deep_analyzer.py BNAI --normal # 일반 분석 모드 강제
 | **볼륨 프로파일** | POC, Value Area |
 | **다크풀** | 숏 볼륨, 장외거래 비율 |
 | **SEC Filing** | S-1/S-4/DEFM14A 파싱, SPAC Earnout |
+| **섹터 뉴스** | 바이오텍(FDA), AI/Tech, 에너지 특화 |
+| **8-K 공시** | 주요 이벤트 자동 분류 |
+| **임상시험** | ClinicalTrials.gov API (바이오텍) |
 | **기관** | Top 5 기관 보유 |
 | **동종업체** | 섹터 PE 비교 |
 | **AI** | Gemini 종합 분석 (숏스퀴즈/일반 모드 자동 전환) |
@@ -657,11 +675,31 @@ uv run python deep_analyzer.py BNAI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v1.9.5
-- **deep_analyzer**: v3
+- **프론트엔드**: v2.2.2
+- **deep_analyzer**: v4 (나스닥의 신)
 - **문서 업데이트**: 2026-01-25
 
 ## 변경 이력
+
+### deep_analyzer v4 (2026-01-25)
+- 섹터별 특화 뉴스 (바이오텍/AI·Tech/에너지/일반 자동 감지)
+- 바이오텍 촉매 분석 (FDA Fast Track, ClinicalTrials.gov 연동)
+- 8-K 주요 이벤트 파싱 (FDA 승인, 임상결과, 계약, 유증 자동 분류)
+- 구글 뉴스 백업 + 최근 60일 필터
+- google.genai 새 SDK 마이그레이션
+
+### v2.2.2 (2026-01-25)
+- 공지사항 팝업 모달 (24시간 숨기기)
+- AI 공지사항 초안 (Gemini, SaaS 규칙)
+- 주말/장마감 시 애프터마켓 가격 우선
+
+### v2.2.0 (2026-01-25)
+- 하이브리드 가격 API (Finnhub+yfinance)
+- 섬머타임 상태 API + 전환 7일전 경고
+- 시장 상태 태그 (🟢 실시간/🟡 PM/AH)
+- 장기 점수 연속 체계 (score_breakdown)
+- 스캐너 --type 옵션 (day/swing/long 분리)
+- cron 분리: 단타 22:30, 스윙/장기 09:00 KST
 
 ### deep_analyzer v3 (2026-01-25)
 - SPAC Earnout 조건 자동 추출 (S-4, DEFM14A)

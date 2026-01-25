@@ -413,11 +413,11 @@ async def get_recommendations(authorization: str = Header(None)):
 
             # 새 형식 (v2): {"day_trade": [...], "swing": [...], "longterm": [...]}
             if isinstance(raw_results, dict) and "day_trade" in raw_results:
-                def format_picks(items):
-                    """추천 목록 포맷팅"""
+                def format_picks(items, category):
+                    """추천 목록 포맷팅 (v3 - 숏스퀴즈/촉매 포함)"""
                     picks = []
                     for item in items[:5]:
-                        picks.append({
+                        pick = {
                             "ticker": item.get("ticker"),
                             "company_name": item.get("company_name", item.get("ticker")),
                             "current_price": item.get("current_price"),
@@ -429,18 +429,42 @@ async def get_recommendations(authorization: str = Header(None)):
                             "macd_cross": item.get("macd_cross"),
                             "news_score": item.get("news_score", 0),
                             "sector": item.get("sector", "Unknown"),
+                            "industry": item.get("industry", ""),
                             "recommendation_reason": item.get("recommendation_reason", ""),
                             "rating": item.get("rating", ""),
                             "rr_ratio": item.get("rr_ratio", 0),
                             "split_entries": item.get("split_entries", [])
-                        })
+                        }
+                        # 단타: 숏스퀴즈 데이터
+                        if category == "day_trade":
+                            pick["squeeze_score"] = item.get("squeeze_score", 0)
+                            pick["squeeze_signals"] = item.get("squeeze_signals", [])
+                            pick["volume_ratio"] = item.get("volume_ratio", 0)
+                        # 스윙: 촉매 데이터
+                        elif category == "swing":
+                            pick["catalyst_score"] = item.get("catalyst_score", 0)
+                            pick["catalyst_signals"] = item.get("catalyst_signals", [])
+                            pick["max_pain"] = item.get("max_pain")
+                            pick["options_signal"] = item.get("options_signal")
+                        # 장기: 기관 데이터
+                        elif category == "longterm":
+                            pick["dividend_yield"] = item.get("dividend_yield", 0)
+                            pick["pe_ratio"] = item.get("pe_ratio")
+                            pick["institutional_pct"] = item.get("institutional_pct")
+                            pick["institutional_signal"] = item.get("institutional_signal")
+                            pick["score_breakdown"] = item.get("score_breakdown", {})
+                        picks.append(pick)
                     return picks
 
                 result["all_recommendations"] = {
-                    "day_trade": format_picks(raw_results.get("day_trade", [])),
-                    "swing": format_picks(raw_results.get("swing", [])),
-                    "longterm": format_picks(raw_results.get("longterm", []))
+                    "day_trade": format_picks(raw_results.get("day_trade", []), "day_trade"),
+                    "swing": format_picks(raw_results.get("swing", []), "swing"),
+                    "longterm": format_picks(raw_results.get("longterm", []), "longterm")
                 }
+                # 업데이트 시간 추가 (둘 다 포함 - 호환성)
+                timestamp = scan_row["created_at"].isoformat() if scan_row.get("created_at") else None
+                result["updated_at"] = timestamp
+                result["created_at"] = timestamp
             else:
                 # 이전 형식 (v1): flat list
                 scan_results = raw_results if isinstance(raw_results, list) else []

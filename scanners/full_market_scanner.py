@@ -29,6 +29,24 @@ from google import genai
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db import get_db
+
+# deep_analyzer에서 핵심 함수 import
+from deep_analyzer import (
+    get_short_history,
+    get_ftd_data,
+    check_regsho,
+    get_borrow_data,
+    get_options_data,
+    get_sector_news,
+    get_biotech_catalysts,
+    get_automotive_catalysts,
+    get_retail_catalysts,
+    get_financial_catalysts,
+    get_industrial_catalysts,
+    get_realestate_catalysts,
+    get_institutional_changes,
+    get_peer_comparison,
+)
 from psycopg2.extras import RealDictCursor
 
 # Gemini 설정
@@ -218,7 +236,7 @@ def get_news_top_tickers(limit: int = 50) -> list:
 
 
 def analyze_day_trade(ticker: str, news_score: float) -> Optional[dict]:
-    """단타 종목 분석"""
+    """단타 종목 분석 (숏스퀴즈 지표 포함)"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period='1mo')
@@ -248,38 +266,113 @@ def analyze_day_trade(ticker: str, news_score: float) -> Optional[dict]:
         vol_today = hist['Volume'].iloc[-1]
         volume_ratio = float(vol_today / vol_avg) if vol_avg > 0 else 1.0
 
+        # ========== 숏스퀴즈 지표 (deep_analyzer 연동) ==========
+        squeeze_score = 0
+        squeeze_signals = []
+
+        # 1. Short Interest 체크
+        try:
+            short_data = get_short_history(ticker)
+            short_float = info.get('shortPercentOfFloat', 0) or 0
+            if short_float > 0.20:  # 20%+ SI
+                squeeze_score += 15
+                squeeze_signals.append(f"SI {short_float*100:.1f}%")
+            elif short_float > 0.10:  # 10%+ SI
+                squeeze_score += 10
+                squeeze_signals.append(f"SI {short_float*100:.1f}%")
+
+            # SI 급증 체크
+            if short_data.get('change_30d'):
+                change = short_data['change_30d']
+                if isinstance(change, str) and '+' in change:
+                    pct = float(change.replace('%', '').replace('+', ''))
+                    if pct > 50:
+                        squeeze_score += 10
+                        squeeze_signals.append("SI 급증")
+        except:
+            pass
+
+        # 2. FTD 체크
+        try:
+            ftd = get_ftd_data(ticker)
+            if ftd.get('total_ftd', 0) > 100000:
+                squeeze_score += 10
+                squeeze_signals.append(f"FTD {ftd['total_ftd']/1e6:.1f}M")
+        except:
+            pass
+
+        # 3. RegSHO 체크 (대박 신호!)
+        try:
+            if check_regsho(ticker):
+                squeeze_score += 20
+                squeeze_signals.append("RegSHO 🔥")
+        except:
+            pass
+
+        # 4. Borrow Rate 체크
+        try:
+            borrow = get_borrow_data(ticker)
+            if borrow.get('zero_borrow'):
+                squeeze_score += 15
+                squeeze_signals.append("Zero Borrow 🔥")
+            elif borrow.get('rate') and float(borrow['rate'].replace('%', '')) > 50:
+                squeeze_score += 10
+                squeeze_signals.append(f"Borrow {borrow['rate']}")
+        except:
+            pass
+
         # 단타 점수 계산
         score = 0.0
 
-        # 거래량 급증 (가장 중요)
+        # ========== 단타 점수 (기술적 요인 80% 이상) ==========
+
+        # 1. 거래량 급증 (35점 - 핵심!)
         if volume_ratio > 5:
-            score += 30
+            score += 35
         elif volume_ratio > 3:
-            score += 25
+            score += 30
         elif volume_ratio > 2:
-            score += 20
+            score += 25
         elif volume_ratio > 1.5:
-            score += 10
-
-        # RSI 반등 구간 (30-50)
-        if 30 <= rsi <= 50:
-            score += 25
-        elif 20 <= rsi < 30:
-            score += 15  # 과매도 주의
-        elif rsi < 20:
-            score += 5   # 너무 과매도
-
-        # MACD 골든크로스
-        if macd_cross == 'golden':
-            score += 25
-
-        # 뉴스 점수
-        if news_score > 10:
-            score += 20
-        elif news_score > 5:
             score += 15
-        elif news_score > 0:
+
+        # 2. RSI 반등 구간 (30점)
+        if 30 <= rsi <= 45:
+            score += 30  # 반등 초기 = 최적
+        elif 25 <= rsi < 30:
+            score += 25  # 과매도 탈출
+        elif 45 < rsi <= 60:
+            score += 20  # 상승 중
+        elif rsi < 25:
+            score += 10  # 너무 과매도 (위험)
+
+        # 3. MACD 크로스 (30점)
+        if macd_cross == 'golden':
+            score += 30  # 골든크로스 = 강력
+        elif macd_val > signal_val and macd_val > 0:
+            score += 20  # MACD 양수 전환
+        elif macd_val > signal_val:
+            score += 10  # 상승 시작
+
+        # 4. 볼린저/ATR 변동성 (15점) - 단타에 중요
+        atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
+        if 3 <= atr_pct <= 8:
+            score += 15  # 적절한 변동성
+        elif 2 <= atr_pct < 3:
+            score += 10  # 조금 낮음
+        elif atr_pct > 8:
+            score += 5   # 너무 변동적
+
+        # 5. 뉴스 점수 (10점 - 단타는 기술적 요인이 더 중요)
+        if news_score > 10:
             score += 10
+        elif news_score > 5:
+            score += 7
+        elif news_score > 0:
+            score += 5
+
+        # 6. 숏스퀴즈 보너스 (추가 점수)
+        score += squeeze_score
 
         if score < 40:  # 최소 점수
             return None
@@ -297,6 +390,10 @@ def analyze_day_trade(ticker: str, news_score: float) -> Optional[dict]:
             'macd_cross': macd_cross,
             'volume_ratio': round(volume_ratio, 2),
             'news_score': news_score,
+            # 숏스퀴즈 데이터 추가
+            'squeeze_score': squeeze_score,
+            'squeeze_signals': squeeze_signals,
+            # 매수/매도 전략
             'recommended_entry': round(current_price * 0.98, 2),  # -2%
             'stop_loss': round(current_price - (atr * 1.5), 2),
             'target': round(current_price * 1.08, 2),  # +8% 목표
@@ -314,7 +411,7 @@ def analyze_day_trade(ticker: str, news_score: float) -> Optional[dict]:
 # ============================================================
 
 def analyze_swing(ticker: str) -> Optional[dict]:
-    """스윙 종목 분석 (4-7일 보유)"""
+    """스윙 종목 분석 (4-7일 보유) - 섹터 촉매 + 옵션 분석"""
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period='3mo')
@@ -337,6 +434,64 @@ def analyze_swing(ticker: str) -> Optional[dict]:
         # 이동평균
         ma20 = hist['Close'].rolling(20).mean().iloc[-1]
         ma50 = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) >= 50 else ma20
+
+        # ========== 섹터 촉매 분석 (스윙 핵심) ==========
+        catalyst_score = 0
+        catalyst_signals = []
+        sector = info.get('sector', '')
+        industry = info.get('industry', '')
+        company_name = info.get('shortName', ticker)
+
+        try:
+            # 섹터별 뉴스 체크
+            sector_news = get_sector_news(ticker, sector, industry)
+            if sector_news.get('sector_specific'):
+                news_count = len(sector_news['sector_specific'])
+                if news_count >= 3:
+                    catalyst_score += 15
+                    catalyst_signals.append(f"{sector_news.get('source', '')} 뉴스 {news_count}건")
+
+            # 섹터별 촉매 체크
+            industry_lower = (industry or "").lower()
+            sector_lower = (sector or "").lower()
+
+            if "biotech" in industry_lower or "pharma" in industry_lower:
+                catalysts = get_biotech_catalysts(ticker, company_name)
+                if catalysts.get('fast_track') or catalysts.get('breakthrough'):
+                    catalyst_score += 20
+                    catalyst_signals.append("FDA 지정 🔥")
+                if catalysts.get('clinical_trials'):
+                    catalyst_score += 10
+                    catalyst_signals.append(f"임상 {len(catalysts['clinical_trials'])}건")
+            elif "auto" in industry_lower:
+                catalysts = get_automotive_catalysts(ticker, company_name)
+                if catalysts.get('ev_credits'):
+                    catalyst_score += 10
+                    catalyst_signals.append("EV 세액공제")
+            elif "bank" in industry_lower or "financial" in sector_lower:
+                catalysts = get_financial_catalysts(ticker, company_name)
+                if catalysts.get('dividend_update'):
+                    catalyst_score += 10
+                    catalyst_signals.append("배당 뉴스")
+        except:
+            pass
+
+        # ========== 옵션 Max Pain 분석 ==========
+        max_pain = None
+        options_signal = None
+        try:
+            options_data = get_options_data(stock)
+            if options_data.get('max_pain'):
+                max_pain = options_data['max_pain']
+                # 현재가가 Max Pain 아래면 상승 가능성
+                if current_price < max_pain * 0.95:
+                    catalyst_score += 15
+                    options_signal = f"Max Pain ${max_pain:.2f} (현재가 아래)"
+                elif current_price > max_pain * 1.05:
+                    catalyst_score -= 5  # 하락 압력
+                    options_signal = f"Max Pain ${max_pain:.2f} (현재가 위)"
+        except:
+            pass
 
         # 스윙 점수 계산
         score = 0.0
@@ -365,24 +520,36 @@ def analyze_swing(ticker: str) -> Optional[dict]:
         if current_price > ma50:
             score += 10
 
+        # 촉매 보너스
+        score += catalyst_score
+
         if score < 40:
             return None
 
         support, resistance = calculate_support_resistance(hist)
 
+        # 스윙 매수가는 더 여유있게 (-5% vs 단타 -2%)
         return {
             'ticker': ticker,
             'category': 'swing',
-            'company_name': info.get('shortName', ticker),
+            'company_name': company_name,
+            'sector': sector,
+            'industry': industry,
             'current_price': round(current_price, 2),
             'market_cap': info.get('marketCap', 0),
             'score': round(score, 1),
             'rsi': round(rsi, 1),
             'macd_cross': macd_cross,
             'ma20': round(ma20, 2),
-            'recommended_entry': round((current_price + support) / 2, 2),
-            'stop_loss': round(support * 0.97, 2),
-            'target': round(resistance * 0.98, 2),
+            # 촉매 데이터
+            'catalyst_score': catalyst_score,
+            'catalyst_signals': catalyst_signals,
+            'max_pain': round(max_pain, 2) if max_pain else None,
+            'options_signal': options_signal,
+            # 매수가 더 여유있게 (스윙은 -5%)
+            'recommended_entry': round(current_price * 0.95, 2),
+            'stop_loss': round(support * 0.95, 2),  # 지지선 -5%
+            'target': round(resistance * 0.95, 2),  # 저항선 근처
             'support': round(support, 2),
             'resistance': round(resistance, 2),
         }
@@ -491,6 +658,43 @@ def analyze_longterm(ticker: str) -> Optional[dict]:
         score += payout_score
         score_breakdown['payout'] = round(payout_score, 1)
 
+        # ========== 기관 분석 (장기 핵심) ==========
+        institutional_pct = None
+        institutional_signal = None
+        try:
+            inst_data = get_institutional_changes(stock)
+            if inst_data.get('institutional_percent'):
+                pct_str = inst_data['institutional_percent']
+                if isinstance(pct_str, str):
+                    institutional_pct = float(pct_str.replace('%', ''))
+                else:
+                    institutional_pct = float(pct_str)
+
+                # 기관 보유 60%+ = 신뢰도 높음
+                if institutional_pct > 60:
+                    score += 10
+                    institutional_signal = f"기관 {institutional_pct:.0f}% 보유 (신뢰도 높음)"
+                elif institutional_pct > 40:
+                    score += 5
+                    institutional_signal = f"기관 {institutional_pct:.0f}% 보유"
+        except:
+            pass
+
+        # ========== 동종업체 비교 ==========
+        relative_value = None
+        try:
+            peer_data = get_peer_comparison(stock, ticker)
+            if peer_data.get('relative_valuation'):
+                relative_value = peer_data['relative_valuation']
+                if '저평가' in relative_value:
+                    score += 10
+                elif '고평가' in relative_value:
+                    score -= 5
+        except:
+            pass
+
+        score_breakdown['institutional'] = 10 if institutional_pct and institutional_pct > 60 else 5 if institutional_pct and institutional_pct > 40 else 0
+
         if score < 35:
             return None
 
@@ -507,9 +711,15 @@ def analyze_longterm(ticker: str) -> Optional[dict]:
             'yearly_return': round(yearly_return, 1),
             'position_52w': round((current_price - low_52w) / range_52w * 100, 0) if range_52w > 0 else 50,
             'sector': info.get('sector', 'N/A'),
-            'recommended_entry': round(current_price * 0.97, 2),
-            'stop_loss': round(low_52w * 0.95, 2),
-            'target': round(high_52w * 0.95, 2),
+            # 기관 데이터
+            'institutional_pct': institutional_pct,
+            'institutional_signal': institutional_signal,
+            'relative_valuation': relative_value,
+            # 장기는 매수가 더 여유있게 (-10% 분할매수)
+            'recommended_entry': round(current_price * 0.90, 2),  # -10%
+            'split_entry_2': round(current_price * 0.85, 2),  # -15%
+            'stop_loss': round(low_52w * 0.90, 2),  # 52주 저점 -10%
+            'target': round(high_52w * 0.90, 2),
             'high_52w': round(high_52w, 2),
             'low_52w': round(low_52w, 2),
         }

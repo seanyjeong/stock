@@ -1,36 +1,29 @@
 # Daily Stock Story - Claude 설정
 
-## 1. 코드 수정 시 필수!
-**`ARCHITECTURE.md` 최신화 필수!**
-- DB 스키마 변경 → 테이블 구조 수정
-- API 추가/변경 → 엔드포인트 목록 수정
-- 컴포넌트 추가 → 프론트 구조 수정
-- 로직 변경 → 해당 섹션 수정
+## 세션 시작 시 필수!
+
+Claude Code 세션 시작하면:
+
+1. **ARCHITECTURE.md 먼저 읽기** - 전체 구조 파악
+2. **DB 메모리 조회** - 과거 작업 내역 확인:
+   ```bash
+   /recall dailystockstory
+   ```
+3. **브리핑 출력** (선택):
+   ```bash
+   uv run python read_briefing.py
+   ```
 
 ---
 
-## 다음 작업 (TODO)
-**플랜 문서:** `PLAN_v2_scanner.md`
+## 핵심 문서
 
-### 종목 추천 시스템 v2
-- 뉴스/호재/악재 종합 분석
-- 스마트 매수가 계산 (지지선, 피보나치)
-- 추천 이유 한글 상세 설명
-- AI 자가 검증 로직
-- 투자성향 프로파일링 (첫 로그인 설문)
-- 내 정보에서 성향 다시하기
+| 문서 | 용도 | 내용 |
+|------|------|------|
+| **`ARCHITECTURE.md`** | 필독 | DB 스키마, API 목록, 인프라, 버전 이력 |
+| `thoughts/shared/handoffs/` | 작업 인수 | 핸드오프 문서 (YAML) |
 
-→ 완료 후 이 섹션 삭제
-
----
-
-## 문서
-
-| 문서 | 설명 |
-|------|------|
-| `ARCHITECTURE.md` | 전체 스택, DB 스키마, API, 인프라 |
-| `HANDOFF.md` | 작업 인수인계, 완료/TODO |
-| `PLAN_v2_scanner.md` | 추천 시스템 v2 개선 플랜 |
+> **코드 수정 시 ARCHITECTURE.md도 반드시 업데이트!**
 
 ---
 
@@ -46,19 +39,6 @@
 - 포트: **8340**
 - 재시작: `sudo systemctl restart stock-api`
 - 상태 확인: `sudo systemctl status stock-api`
-
----
-
-## 세션 시작 시 할 일
-
-Claude Code 세션 시작하면 **DB에서 브리핑 읽기만 하면 됨!**
-
-### 브리핑 출력 (한 줄)
-```bash
-uv run python ~/dailystockstory/read_briefing.py
-```
-
-이게 끝! 모든 데이터는 외부에서 자동 수집됨.
 
 ---
 
@@ -128,9 +108,9 @@ cd $CLAUDE_OPC_DIR && PYTHONPATH=. uv run python scripts/core/store_learning.py 
 
 ---
 
-## 미국주식 분석 (deep_analyzer.py v3)
+## 미국주식 분석 (deep_analyzer.py v4) 🔥
 
-**사용자가 미국주식 관련 질문하면 이거 써!**
+**사용자가 미국주식 관련 질문하면 이거 써! (나스닥의 신 에디션)**
 
 ```bash
 # 종목 분석 (AI 포함)
@@ -140,7 +120,7 @@ uv run python deep_analyzer.py BNAI
 uv run python deep_analyzer.py BNAI --no-ai
 
 # 일반 분석 모드 강제 (숏스퀴즈 아닐 때)
-uv run python deep_analyzer.py BNAI --normal
+uv run python deep_analyzer.py GLSI --normal
 ```
 
 **언제 쓸까?**
@@ -152,7 +132,16 @@ uv run python deep_analyzer.py BNAI --normal
 | "SEC 공시 뭐 있어?" | ✅ `deep_analyzer.py {ticker} --no-ai` |
 | "락업 언제 풀려?" | ✅ `deep_analyzer.py {ticker}` |
 | "SPAC이야?" | ✅ `deep_analyzer.py {ticker}` |
+| "FDA 승인났어?" | ✅ `deep_analyzer.py {ticker}` (바이오텍 자동 감지) |
+| "임상 몇상이야?" | ✅ `deep_analyzer.py {ticker}` (ClinicalTrials.gov 연동) |
+| "AI 관련 뉴스 있어?" | ✅ `deep_analyzer.py {ticker}` (Tech/AI 자동 감지) |
 | "내 포트폴리오 보여줘" | ❌ `read_briefing.py` 사용 |
+
+**v4 신규 기능:**
+- 섹터별 특화 뉴스 (바이오텍/AI·Tech/에너지/일반)
+- 바이오텍 촉매 (FDA Fast Track, ClinicalTrials.gov)
+- 8-K 이벤트 파싱 (FDA승인, 임상결과, 계약, 유증)
+- 뉴스 60일 필터 + 구글뉴스 백업
 
 **분석 항목:**
 - 기본정보, 가격, Float
@@ -162,59 +151,25 @@ uv run python deep_analyzer.py BNAI --normal
 - FTD, 옵션체인, 소셜센티먼트
 - 피보나치, 볼륨프로파일, 다크풀
 - SPAC/Earnout 조건
+- **섹터별 뉴스** (Biotech FDA/AI Tech/Energy)
+- **8-K 이벤트** (FDA승인, 임상, 계약, 유증 자동분류)
+- **바이오텍 촉매** (ClinicalTrials.gov 임상정보)
 - Gemini AI 종합 분석
 
 ---
 
-## 폴더 구조
+## 프로젝트 구조
 
-```
-~/dailystockstory/
-├── CLAUDE.md            ← 설정
-├── deep_analyzer.py     ← 🔥 초정밀 주식 분석기 v3
-├── stock_collector.py   ← 데이터 수집 (cron)
-├── read_briefing.py     ← 브리핑 읽기 (Claude용)
-├── scrape_blog.py       ← 블로그 스크래핑 (collector에 통합됨)
-├── portfolio.md         ← 포트폴리오 기록
-├── pyproject.toml       ← Python 의존성
-└── blog_posts/          ← 스크래핑된 블로그 글
-```
+> **상세 구조는 `ARCHITECTURE.md` 참조** (DB 스키마, API 목록, 컴포넌트 구조 포함)
 
-**DB 테이블:**
-- `stock_prices` - 주가
-- `regSHO_list` - RegSHO 목록
-- `exchange_rates` - 환율
-- `blog_posts` - 블로그 포스트
-- `stock_briefing` - 브리핑 캐시
-
----
-
-## 브리핑 예시
-
-`uv run python read_briefing.py` 실행 결과:
-
-```
-## 📊 Daily Stock Briefing
-*데이터 수집: 2026-01-24 06:33 KST*
-
-### 내 포트폴리오
-| 종목 | 수량 | 평단 | 현재가 | 평가금 | 손익 |
-| **BNAI** | 464주 | $9.55 | **$58.54** | $27,163 | +$22,731 (+513%) 🔥 |
-| **GLSI** | 67주 | $25.22 | **$26.00** | $1,742 | +$52 (+3%) 📈 |
-
-**총 평가금:** $28,905 (₩41,911,622)
-**총 손익:** +$22,784 (+372%)
-
-### 세금 계산 (실현 시)
-| **예상 세금 (22%)** | **₩6,717,977** |
-| **세후 순수익** | **₩26,318,282** |
-
-### RegSHO Threshold
-✅ **보유 종목 등재:** BNAI
-
-### 블로거 인사이트 (까꿍토끼)
-- 티커, 키워드 자동 추출
-```
+**핵심 파일:**
+| 파일 | 역할 |
+|------|------|
+| `deep_analyzer.py` | 초정밀 주식 분석기 (v4) |
+| `stock_collector.py` | 데이터 수집 (cron) |
+| `read_briefing.py` | 브리핑 조회 |
+| `api/realtime.py` | 실시간 가격 (Finnhub+yfinance 하이브리드) |
+| `scanners/full_market_scanner.py` | 종목 스캔 + AI 추천 |
 
 ---
 

@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
 """
-🔥 초정밀 주식 분석기 v3 (Deep Stock Analyzer)
-Zero Borrow 감지 + Gemini AI 분석 + SPAC Earnout 분석!
+🔥 초정밀 주식 분석기 v4 (Deep Stock Analyzer) - 나스닥의 신 에디션
+Zero Borrow 감지 + Gemini AI 분석 + 섹터별 특화 분석!
 
-v3 새 기능:
+v4 새 기능:
+- 섹터별 특화 뉴스 (바이오텍/AI·Tech/에너지/일반)
+- 바이오텍 촉매 분석 (FDA Fast Track, ClinicalTrials.gov 연동)
+- 8-K 주요 이벤트 파싱 (FDA 승인, 임상결과, 계약 등)
+- 구글 뉴스 백업 + 최근 60일 필터
+- SPAC/Earnout 조건 자동 추출
+
+v3 기능:
 - SPAC/Earnout 조건 자동 추출 (S-4, DEFM14A)
 - 락업 가격 추출 개선 (가격 기반 락업)
 - google.genai 새 SDK 마이그레이션
@@ -11,6 +18,7 @@ v3 새 기능:
 Usage:
     uv run python deep_analyzer.py BNAI
     uv run python deep_analyzer.py BNAI --no-ai   # AI 분석 스킵
+    uv run python deep_analyzer.py GLSI --normal  # 일반 분석 모드
 """
 
 import sys
@@ -44,9 +52,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
 }
 
-# Gemini 설정 (새 SDK)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or "AIzaSyAFThWjgs17S9vELmtQGpZO9uHwUWJepm8"
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+# Gemini 설정 (새 SDK) - 환경변수에서만 로드!
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 def get_db():
@@ -1565,28 +1573,717 @@ def get_news(stock) -> list:
         return []
 
 
-def search_recent_news(ticker: str) -> list:
-    """구글 뉴스 검색 (백업)"""
+def search_recent_news(ticker: str, days: int = 60) -> list:
+    """구글 뉴스 검색 (최근 N일 필터)"""
     try:
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=days)
+
         url = f"https://news.google.com/rss/search?q={ticker}+stock&hl=en-US&gl=US&ceid=US:en"
         resp = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(resp.text, "xml")
 
         news = []
-        for item in soup.find_all("item")[:5]:
+        for item in soup.find_all("item")[:15]:
             title = item.find("title")
             link = item.find("link")
             pub_date = item.find("pubDate")
 
             if title:
+                # 날짜 파싱 및 필터링
+                date_str = pub_date.text if pub_date else ""
+                try:
+                    # "Wed, 22 Jan 2026 10:00:00 GMT" 형식
+                    parsed_date = datetime.strptime(date_str[:16], "%a, %d %b %Y")
+                    if parsed_date < cutoff_date:
+                        continue  # 오래된 뉴스 스킵
+                except:
+                    pass
+
                 news.append({
                     "title": title.text,
                     "link": link.text if link else "",
-                    "date": pub_date.text if pub_date else ""
+                    "date": date_str
                 })
-        return news
+        return news[:10]
     except:
         return []
+
+
+# ============================================================
+# 섹터별 특화 뉴스 수집
+# ============================================================
+
+def get_sector_news(ticker: str, sector: str, industry: str) -> dict:
+    """섹터별 특화 뉴스 수집 (최근 60일)"""
+    sector_news = {
+        "general_news": [],
+        "sector_specific": [],
+        "catalysts": [],
+        "source": None,
+    }
+
+    sector_lower = (sector or "").lower()
+    industry_lower = (industry or "").lower()
+
+    # 1. 일반 구글 뉴스 (백업)
+    sector_news["general_news"] = search_recent_news(ticker, days=60)
+
+    # 2. 섹터별 특화 뉴스
+    if "biotech" in industry_lower or "pharma" in industry_lower or "healthcare" in sector_lower:
+        sector_news["sector_specific"] = get_biotech_news(ticker)
+        sector_news["source"] = "🧬 Biotech"
+    elif "software" in industry_lower or "semiconductor" in industry_lower or "technology" in sector_lower:
+        sector_news["sector_specific"] = get_tech_news(ticker)
+        sector_news["source"] = "🤖 Tech/AI"
+    elif "energy" in sector_lower or "oil" in industry_lower or "gas" in industry_lower:
+        sector_news["sector_specific"] = get_energy_news(ticker)
+        sector_news["source"] = "⛽ Energy"
+    elif "auto" in industry_lower or "vehicle" in industry_lower or "ev" in industry_lower:
+        sector_news["sector_specific"] = get_automotive_news(ticker)
+        sector_news["source"] = "🚗 Automotive"
+    elif "real estate" in sector_lower or "reit" in industry_lower:
+        # REIT 체크를 retail 앞에 (REIT - Retail 구분)
+        sector_news["sector_specific"] = get_realestate_news(ticker)
+        sector_news["source"] = "🏠 Real Estate"
+    elif "retail" in industry_lower or "e-commerce" in industry_lower or "store" in industry_lower:
+        sector_news["sector_specific"] = get_retail_news(ticker)
+        sector_news["source"] = "🛒 Retail"
+    elif "food" in industry_lower or "beverage" in industry_lower or "consumer" in sector_lower:
+        sector_news["sector_specific"] = get_consumer_news(ticker)
+        sector_news["source"] = "🍔 Consumer"
+    elif "bank" in industry_lower or "financial" in sector_lower or "insurance" in industry_lower:
+        sector_news["sector_specific"] = get_financial_news(ticker)
+        sector_news["source"] = "🏦 Financial"
+    elif "industrial" in sector_lower or "aerospace" in industry_lower or "defense" in industry_lower:
+        sector_news["sector_specific"] = get_industrial_news(ticker)
+        sector_news["source"] = "🏭 Industrial"
+    else:
+        # 기본: Finviz 뉴스
+        sector_news["sector_specific"] = get_finviz_news(ticker)
+        sector_news["source"] = "📰 General"
+
+    return sector_news
+
+
+def get_biotech_news(ticker: str) -> list:
+    """바이오텍 전용 뉴스 (BioSpace, FiercePharma)"""
+    news = []
+
+    # 1. BioSpace 검색
+    try:
+        url = f"https://www.biospace.com/search?q={ticker}"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            articles = soup.select("article h3 a, .article-title a")[:5]
+            for a in articles:
+                news.append({
+                    "title": a.text.strip(),
+                    "link": a.get("href", ""),
+                    "source": "BioSpace"
+                })
+    except:
+        pass
+
+    # 2. 구글 뉴스 바이오텍 키워드
+    try:
+        keywords = f"{ticker} FDA OR clinical OR trial OR Phase OR approval"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/FDA"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_tech_news(ticker: str) -> list:
+    """AI/Tech 전용 뉴스"""
+    news = []
+
+    # 구글 뉴스 AI/Tech 키워드
+    try:
+        keywords = f"{ticker} AI OR artificial intelligence OR GPU OR datacenter OR cloud"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/AI"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_energy_news(ticker: str) -> list:
+    """에너지 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} oil OR gas OR drilling OR OPEC OR energy"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Energy"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_automotive_news(ticker: str) -> list:
+    """자동차/EV 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} EV OR electric vehicle OR battery OR autonomous OR Tesla OR charging"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Auto"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_retail_news(ticker: str) -> list:
+    """리테일/이커머스 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} retail OR e-commerce OR consumer spending OR sales OR store"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Retail"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_consumer_news(ticker: str) -> list:
+    """소비재/식품 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} food OR beverage OR consumer goods OR grocery OR brand"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Consumer"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_financial_news(ticker: str) -> list:
+    """금융/핀테크 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} bank OR fintech OR interest rate OR Fed OR lending OR credit"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Finance"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_industrial_news(ticker: str) -> list:
+    """산업재/제조 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} manufacturing OR industrial OR defense OR aerospace OR contract"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/Industrial"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_realestate_news(ticker: str) -> list:
+    """부동산/리츠 전용 뉴스"""
+    news = []
+
+    try:
+        keywords = f"{ticker} REIT OR real estate OR property OR mortgage OR housing"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:7]:
+            title = item.find("title")
+            if title:
+                news.append({
+                    "title": title.text,
+                    "link": item.find("link").text if item.find("link") else "",
+                    "source": "Google/RealEstate"
+                })
+    except:
+        pass
+
+    return news
+
+
+def get_finviz_news(ticker: str) -> list:
+    """Finviz 뉴스 스크래핑"""
+    news = []
+
+    try:
+        url = f"https://finviz.com/quote.ashx?t={ticker}"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            news_table = soup.find("table", {"id": "news-table"})
+
+            if news_table:
+                rows = news_table.find_all("tr")[:7]
+                for row in rows:
+                    link = row.find("a")
+                    if link:
+                        news.append({
+                            "title": link.text.strip(),
+                            "link": link.get("href", ""),
+                            "source": "Finviz"
+                        })
+    except:
+        pass
+
+    return news
+
+
+# ============================================================
+# 바이오텍 특화 분석 (FDA, 임상시험)
+# ============================================================
+
+def get_biotech_catalysts(ticker: str, company_name: str) -> dict:
+    """바이오텍 촉매 분석 (FDA, 임상시험)"""
+    catalysts = {
+        "fda_status": [],
+        "clinical_trials": [],
+        "pdufa_dates": [],
+        "fast_track": False,
+        "breakthrough": False,
+        "orphan_drug": False,
+    }
+
+    # 1. FDA 관련 뉴스 검색
+    try:
+        keywords = f"{ticker} FDA approval OR Fast Track OR PDUFA OR BLA OR NDA"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                # FDA 상태 감지
+                if "fast track" in title_lower:
+                    catalysts["fast_track"] = True
+                if "breakthrough" in title_lower:
+                    catalysts["breakthrough"] = True
+                if "orphan" in title_lower:
+                    catalysts["orphan_drug"] = True
+                if "pdufa" in title_lower:
+                    catalysts["pdufa_dates"].append(title.text)
+
+                catalysts["fda_status"].append({
+                    "headline": title.text,
+                    "date": item.find("pubDate").text if item.find("pubDate") else ""
+                })
+    except:
+        pass
+
+    # 2. ClinicalTrials.gov API
+    try:
+        # 회사명 전체로 검색 (더 정확)
+        # "Greenwich LifeSciences" 처럼 앞 2단어 사용
+        if company_name:
+            words = company_name.replace(",", "").replace(".", "").split()[:2]
+            search_term = " ".join(words)
+        else:
+            search_term = ticker
+
+        ct_url = f"https://clinicaltrials.gov/api/v2/studies?query.spons={search_term}&pageSize=10"
+        resp = requests.get(ct_url, headers={"Accept": "application/json"}, timeout=15)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            studies = data.get("studies", [])
+
+            for study in studies[:5]:
+                protocol = study.get("protocolSection", {})
+                id_module = protocol.get("identificationModule", {})
+                status_module = protocol.get("statusModule", {})
+                design_module = protocol.get("designModule", {})
+                sponsor_module = protocol.get("sponsorCollaboratorsModule", {})
+
+                # 스폰서 이름 확인 (정확한 매칭)
+                lead_sponsor = sponsor_module.get("leadSponsor", {}).get("name", "")
+                # 회사명이 스폰서에 포함되지 않으면 스킵
+                if company_name and company_name.split()[0].lower() not in lead_sponsor.lower():
+                    continue
+
+                phase_list = design_module.get("phases", [])
+                phase = phase_list[0] if phase_list else "N/A"
+
+                catalysts["clinical_trials"].append({
+                    "nct_id": id_module.get("nctId", ""),
+                    "title": id_module.get("briefTitle", "")[:80],
+                    "phase": phase,
+                    "status": status_module.get("overallStatus", ""),
+                    "completion": status_module.get("primaryCompletionDateStruct", {}).get("date", "N/A"),
+                    "sponsor": lead_sponsor[:40]
+                })
+    except Exception as e:
+        pass
+
+    return catalysts
+
+
+def get_automotive_catalysts(ticker: str, company_name: str) -> dict:
+    """자동차/EV 촉매 분석"""
+    catalysts = {
+        "production_numbers": [],
+        "new_models": [],
+        "ev_credits": False,
+        "battery_partnership": False,
+        "autonomous_update": False,
+    }
+
+    try:
+        # EV/자동차 관련 뉴스 검색
+        keywords = f"{ticker} production OR delivery OR new model OR EV tax credit OR battery"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                if "production" in title_lower or "deliver" in title_lower:
+                    catalysts["production_numbers"].append(title.text)
+                if "new model" in title_lower or "launch" in title_lower:
+                    catalysts["new_models"].append(title.text)
+                if "ev credit" in title_lower or "tax credit" in title_lower:
+                    catalysts["ev_credits"] = True
+                if "battery" in title_lower and "partner" in title_lower:
+                    catalysts["battery_partnership"] = True
+                if "autonomous" in title_lower or "self-driving" in title_lower:
+                    catalysts["autonomous_update"] = True
+    except:
+        pass
+
+    return catalysts
+
+
+def get_retail_catalysts(ticker: str, company_name: str) -> dict:
+    """리테일 촉매 분석"""
+    catalysts = {
+        "same_store_sales": [],
+        "ecommerce_growth": [],
+        "holiday_sales": False,
+        "store_openings": [],
+        "inventory_update": False,
+    }
+
+    try:
+        keywords = f"{ticker} same-store sales OR e-commerce OR holiday sales OR store opening"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                if "same-store" in title_lower or "comparable" in title_lower:
+                    catalysts["same_store_sales"].append(title.text)
+                if "e-commerce" in title_lower or "online sales" in title_lower:
+                    catalysts["ecommerce_growth"].append(title.text)
+                if "holiday" in title_lower or "black friday" in title_lower:
+                    catalysts["holiday_sales"] = True
+                if "open" in title_lower and "store" in title_lower:
+                    catalysts["store_openings"].append(title.text)
+                if "inventory" in title_lower:
+                    catalysts["inventory_update"] = True
+    except:
+        pass
+
+    return catalysts
+
+
+def get_financial_catalysts(ticker: str, company_name: str) -> dict:
+    """금융 촉매 분석"""
+    catalysts = {
+        "fed_rate_impact": [],
+        "loan_growth": [],
+        "regulatory_news": [],
+        "dividend_update": False,
+        "capital_ratio": False,
+    }
+
+    try:
+        keywords = f"{ticker} Fed rate OR interest rate OR loan growth OR regulation OR dividend"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                if "fed" in title_lower or "interest rate" in title_lower:
+                    catalysts["fed_rate_impact"].append(title.text)
+                if "loan" in title_lower and ("growth" in title_lower or "demand" in title_lower):
+                    catalysts["loan_growth"].append(title.text)
+                if "regulat" in title_lower or "compliance" in title_lower:
+                    catalysts["regulatory_news"].append(title.text)
+                if "dividend" in title_lower:
+                    catalysts["dividend_update"] = True
+                if "capital" in title_lower and "ratio" in title_lower:
+                    catalysts["capital_ratio"] = True
+    except:
+        pass
+
+    return catalysts
+
+
+def get_industrial_catalysts(ticker: str, company_name: str) -> dict:
+    """산업재 촉매 분석"""
+    catalysts = {
+        "contracts": [],
+        "gov_spending": [],
+        "defense_budget": [],
+        "supply_chain": False,
+        "pmi_update": False,
+    }
+
+    try:
+        keywords = f"{ticker} contract OR government OR defense budget OR supply chain OR manufacturing"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                if "contract" in title_lower and ("win" in title_lower or "award" in title_lower):
+                    catalysts["contracts"].append(title.text)
+                if "government" in title_lower and "spend" in title_lower:
+                    catalysts["gov_spending"].append(title.text)
+                if "defense" in title_lower and "budget" in title_lower:
+                    catalysts["defense_budget"].append(title.text)
+                if "supply chain" in title_lower:
+                    catalysts["supply_chain"] = True
+                if "pmi" in title_lower or "manufacturing index" in title_lower:
+                    catalysts["pmi_update"] = True
+    except:
+        pass
+
+    return catalysts
+
+
+def get_realestate_catalysts(ticker: str, company_name: str) -> dict:
+    """부동산/리츠 촉매 분석"""
+    catalysts = {
+        "rate_impact": [],
+        "occupancy": [],
+        "acquisitions": [],
+        "cap_rate": False,
+        "noi_growth": False,
+    }
+
+    try:
+        keywords = f"{ticker} interest rate OR occupancy OR acquisition OR cap rate OR NOI"
+        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        soup = BeautifulSoup(resp.text, "xml")
+
+        for item in soup.find_all("item")[:5]:
+            title = item.find("title")
+            if title:
+                title_lower = title.text.lower()
+
+                if "rate" in title_lower and ("cut" in title_lower or "hike" in title_lower):
+                    catalysts["rate_impact"].append(title.text)
+                if "occupancy" in title_lower:
+                    catalysts["occupancy"].append(title.text)
+                if "acqui" in title_lower or "purchase" in title_lower:
+                    catalysts["acquisitions"].append(title.text)
+                if "cap rate" in title_lower:
+                    catalysts["cap_rate"] = True
+                if "noi" in title_lower or "net operating" in title_lower:
+                    catalysts["noi_growth"] = True
+    except:
+        pass
+
+    return catalysts
+
+
+# ============================================================
+# 8-K 공시 내용 파싱
+# ============================================================
+
+def parse_8k_content(ticker: str, cik: str) -> list:
+    """최근 8-K 공시에서 주요 이벤트 추출"""
+    events = []
+    headers = {"User-Agent": "DailyStockStory/1.0 (sean@example.com)"}
+
+    if not cik:
+        return events
+
+    try:
+        # 최근 filing 목록 가져오기
+        filings_url = f"https://data.sec.gov/submissions/CIK{cik.zfill(10)}.json"
+        resp = requests.get(filings_url, headers=headers, timeout=15)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            recent = data.get('filings', {}).get('recent', {})
+
+            forms = recent.get('form', [])
+            dates = recent.get('filingDate', [])
+            accessions = recent.get('accessionNumber', [])
+            descriptions = recent.get('primaryDocument', [])
+
+            # 최근 8-K만 필터링 (최대 5개)
+            eight_k_count = 0
+            for i in range(min(50, len(forms))):
+                if forms[i] == "8-K" and eight_k_count < 5:
+                    eight_k_count += 1
+
+                    # 8-K 문서 내용 가져오기
+                    try:
+                        acc = accessions[i].replace('-', '')
+                        doc = descriptions[i] if i < len(descriptions) else ""
+                        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc}/{doc}"
+
+                        doc_resp = requests.get(doc_url, headers=headers, timeout=15)
+
+                        if doc_resp.status_code == 200:
+                            text = doc_resp.text.lower()
+
+                            # 주요 이벤트 키워드 감지
+                            event_type = "기타"
+                            importance = "보통"
+
+                            if "fda" in text and ("approv" in text or "clear" in text):
+                                event_type = "FDA 승인/허가"
+                                importance = "🔥 중요"
+                            elif "phase" in text and ("result" in text or "data" in text):
+                                event_type = "임상 결과 발표"
+                                importance = "🔥 중요"
+                            elif "agreement" in text or "partnership" in text or "collaborat" in text:
+                                event_type = "계약/파트너십"
+                                importance = "⚡ 주목"
+                            elif "offering" in text or "securities" in text:
+                                event_type = "유증/공모"
+                                importance = "⚠️ 희석"
+                            elif "executive" in text or "officer" in text or "director" in text:
+                                event_type = "임원 변동"
+                                importance = "보통"
+                            elif "earning" in text or "financial" in text or "quarter" in text:
+                                event_type = "실적 발표"
+                                importance = "📊 실적"
+
+                            events.append({
+                                "date": dates[i],
+                                "type": event_type,
+                                "importance": importance,
+                                "accession": accessions[i]
+                            })
+                    except:
+                        pass
+
+    except:
+        pass
+
+    return events
 
 
 # ============================================================
@@ -2088,6 +2785,241 @@ def print_news(news: list):
             print(f"      출처: {publisher}")
 
 
+def print_sector_news(sector_news: dict):
+    """섹터별 특화 뉴스 출력"""
+    source = sector_news.get("source", "General")
+    section(f"섹터별 뉴스 ({source})", "📡")
+
+    # 섹터 특화 뉴스
+    specific = sector_news.get("sector_specific", [])
+    if specific:
+        subsection(f"{source} 전문 뉴스 (최근 60일)")
+        for i, n in enumerate(specific[:5], 1):
+            title = n.get('title', 'N/A')[:70]
+            src = n.get('source', '')
+            print(f"  [{i}] {title}...")
+            if src:
+                print(f"      📌 {src}")
+    else:
+        print("  섹터 특화 뉴스 없음")
+
+    # 일반 뉴스 (백업)
+    general = sector_news.get("general_news", [])
+    if general:
+        subsection("일반 뉴스 (Google)")
+        for i, n in enumerate(general[:3], 1):
+            title = n.get('title', 'N/A')[:70]
+            print(f"  [{i}] {title}...")
+
+
+def print_biotech_catalysts(catalysts: dict):
+    """바이오텍 촉매 출력"""
+    section("바이오텍 촉매 분석", "💊")
+
+    # FDA 상태
+    if catalysts.get("fast_track"):
+        print("  🚀 FDA Fast Track 지정!")
+    if catalysts.get("breakthrough"):
+        print("  ⭐ FDA Breakthrough 지정!")
+    if catalysts.get("orphan_drug"):
+        print("  🏥 Orphan Drug 지정!")
+
+    # FDA 관련 뉴스
+    fda_status = catalysts.get("fda_status", [])
+    if fda_status:
+        subsection("FDA 관련 뉴스")
+        for i, news in enumerate(fda_status[:3], 1):
+            headline = news.get('headline', '')[:70]
+            print(f"  [{i}] {headline}...")
+
+    # 임상시험 정보
+    trials = catalysts.get("clinical_trials", [])
+    if trials:
+        subsection("진행 중인 임상시험 (ClinicalTrials.gov)")
+        for trial in trials[:3]:
+            nct = trial.get('nct_id', '')
+            title = trial.get('title', '')[:60]
+            phase = trial.get('phase', 'N/A')
+            status = trial.get('status', '')
+            completion = trial.get('completion', 'N/A')
+            sponsor = trial.get('sponsor', '')
+
+            status_emoji = "🟢" if status == "RECRUITING" else "🟡" if "ACTIVE" in status.upper() else "⚪"
+            print(f"  {status_emoji} [{phase}] {title}...")
+            print(f"      NCT: {nct} | 완료예정: {completion}")
+            if sponsor:
+                print(f"      스폰서: {sponsor}")
+    else:
+        print("  임상시험 정보 없음 (또는 검색 실패)")
+
+
+def print_automotive_catalysts(catalysts: dict):
+    """자동차/EV 촉매 출력"""
+    section("자동차/EV 촉매 분석", "🚗")
+
+    if catalysts.get("ev_credits"):
+        print("  ⚡ EV 세액공제 관련 뉴스!")
+    if catalysts.get("battery_partnership"):
+        print("  🔋 배터리 파트너십 뉴스!")
+    if catalysts.get("autonomous_update"):
+        print("  🤖 자율주행 업데이트!")
+
+    production = catalysts.get("production_numbers", [])
+    if production:
+        subsection("생산/배송 뉴스")
+        for i, news in enumerate(production[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    models = catalysts.get("new_models", [])
+    if models:
+        subsection("신모델 출시")
+        for i, news in enumerate(models[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    if not production and not models:
+        print("  최근 자동차 관련 촉매 없음")
+
+
+def print_retail_catalysts(catalysts: dict):
+    """리테일 촉매 출력"""
+    section("리테일 촉매 분석", "🛒")
+
+    if catalysts.get("holiday_sales"):
+        print("  🎄 연말 쇼핑 시즌 뉴스!")
+    if catalysts.get("inventory_update"):
+        print("  📦 재고 관련 업데이트!")
+
+    sss = catalysts.get("same_store_sales", [])
+    if sss:
+        subsection("동일점포 매출")
+        for i, news in enumerate(sss[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    ecom = catalysts.get("ecommerce_growth", [])
+    if ecom:
+        subsection("이커머스 성장")
+        for i, news in enumerate(ecom[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    stores = catalysts.get("store_openings", [])
+    if stores:
+        subsection("매장 오픈/폐쇄")
+        for i, news in enumerate(stores[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    if not sss and not ecom and not stores:
+        print("  최근 리테일 관련 촉매 없음")
+
+
+def print_financial_catalysts(catalysts: dict):
+    """금융 촉매 출력"""
+    section("금융 촉매 분석", "🏦")
+
+    if catalysts.get("dividend_update"):
+        print("  💰 배당 관련 뉴스!")
+    if catalysts.get("capital_ratio"):
+        print("  📊 자본비율 관련 뉴스!")
+
+    fed = catalysts.get("fed_rate_impact", [])
+    if fed:
+        subsection("금리 영향")
+        for i, news in enumerate(fed[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    loan = catalysts.get("loan_growth", [])
+    if loan:
+        subsection("대출 성장")
+        for i, news in enumerate(loan[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    reg = catalysts.get("regulatory_news", [])
+    if reg:
+        subsection("규제 뉴스")
+        for i, news in enumerate(reg[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    if not fed and not loan and not reg:
+        print("  최근 금융 관련 촉매 없음")
+
+
+def print_industrial_catalysts(catalysts: dict):
+    """산업재 촉매 출력"""
+    section("산업재 촉매 분석", "🏭")
+
+    if catalysts.get("supply_chain"):
+        print("  🚚 공급망 관련 뉴스!")
+    if catalysts.get("pmi_update"):
+        print("  📈 PMI/제조업 지수 뉴스!")
+
+    contracts = catalysts.get("contracts", [])
+    if contracts:
+        subsection("수주/계약")
+        for i, news in enumerate(contracts[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    gov = catalysts.get("gov_spending", [])
+    if gov:
+        subsection("정부 지출")
+        for i, news in enumerate(gov[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    defense = catalysts.get("defense_budget", [])
+    if defense:
+        subsection("국방 예산")
+        for i, news in enumerate(defense[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    if not contracts and not gov and not defense:
+        print("  최근 산업재 관련 촉매 없음")
+
+
+def print_realestate_catalysts(catalysts: dict):
+    """부동산/리츠 촉매 출력"""
+    section("부동산/리츠 촉매 분석", "🏠")
+
+    if catalysts.get("cap_rate"):
+        print("  📉 Cap Rate 관련 뉴스!")
+    if catalysts.get("noi_growth"):
+        print("  📈 NOI 성장 관련 뉴스!")
+
+    rate = catalysts.get("rate_impact", [])
+    if rate:
+        subsection("금리 영향")
+        for i, news in enumerate(rate[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    occ = catalysts.get("occupancy", [])
+    if occ:
+        subsection("점유율")
+        for i, news in enumerate(occ[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    acq = catalysts.get("acquisitions", [])
+    if acq:
+        subsection("인수/매각")
+        for i, news in enumerate(acq[:3], 1):
+            print(f"  [{i}] {news[:70]}...")
+
+    if not rate and not occ and not acq:
+        print("  최근 부동산 관련 촉매 없음")
+
+
+def print_8k_events(events: list):
+    """8-K 이벤트 출력"""
+    section("8-K 주요 공시", "📢")
+
+    if not events:
+        print("  최근 8-K 공시 없음")
+        return
+
+    for event in events[:5]:
+        date = event.get('date', '')
+        event_type = event.get('type', '기타')
+        importance = event.get('importance', '')
+
+        print(f"  {importance} {date}: {event_type}")
+
+
 def print_sec_info(sec_info: dict):
     """SEC 공시 정보"""
     section("SEC 공시 분석", "📋")
@@ -2458,11 +3390,54 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
         insider_tx = get_insider_transactions(stock)
         inst_holders = get_institutional_holders(stock)
 
-        # 6. 뉴스
+        # 6. 뉴스 (섹터별 특화)
         print("  → 뉴스...")
         news = get_news(stock)
         if not news:
             news = search_recent_news(ticker)
+
+        # 6.5 섹터별 특화 뉴스
+        print("  → 섹터별 특화 뉴스...")
+        sector = data.get('sector', '')
+        industry = data.get('industry', '')
+        sector_news = get_sector_news(ticker, sector, industry)
+
+        # 6.6 섹터별 촉매 분석
+        sector_catalysts = None
+        sector_catalyst_type = None
+        company_name = data.get('name', ticker)
+        industry_lower = (industry or "").lower()
+        sector_lower = (sector or "").lower()
+
+        if "biotech" in industry_lower or "pharma" in industry_lower or "healthcare" in sector_lower:
+            print("  → 바이오텍 촉매 분석 (FDA/임상)...")
+            sector_catalysts = get_biotech_catalysts(ticker, company_name)
+            sector_catalyst_type = "biotech"
+        elif "auto" in industry_lower or "vehicle" in industry_lower or "ev" in industry_lower:
+            print("  → 자동차/EV 촉매 분석...")
+            sector_catalysts = get_automotive_catalysts(ticker, company_name)
+            sector_catalyst_type = "automotive"
+        elif "real estate" in sector_lower or "reit" in industry_lower:
+            # REIT 체크를 retail 앞에 (REIT - Retail 구분)
+            print("  → 부동산/리츠 촉매 분석...")
+            sector_catalysts = get_realestate_catalysts(ticker, company_name)
+            sector_catalyst_type = "realestate"
+        elif "retail" in industry_lower or "e-commerce" in industry_lower or "store" in industry_lower:
+            print("  → 리테일 촉매 분석...")
+            sector_catalysts = get_retail_catalysts(ticker, company_name)
+            sector_catalyst_type = "retail"
+        elif "food" in industry_lower or "beverage" in industry_lower or "consumer" in sector_lower:
+            print("  → 소비재 촉매 분석...")
+            sector_catalysts = get_retail_catalysts(ticker, company_name)  # 리테일과 유사
+            sector_catalyst_type = "consumer"
+        elif "bank" in industry_lower or "financial" in sector_lower or "insurance" in industry_lower:
+            print("  → 금융 촉매 분석...")
+            sector_catalysts = get_financial_catalysts(ticker, company_name)
+            sector_catalyst_type = "financial"
+        elif "industrial" in sector_lower or "aerospace" in industry_lower or "defense" in industry_lower:
+            print("  → 산업재 촉매 분석...")
+            sector_catalysts = get_industrial_catalysts(ticker, company_name)
+            sector_catalyst_type = "industrial"
 
         # 7. SEC 공시 정보 (빚, covenant, 희석 리스크)
         print("  → SEC 공시 키워드 분석...")
@@ -2499,6 +3474,11 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
         # 15. SEC Filing 상세 (S-1, 락업, 워런트)
         print("  → SEC Filing 상세 파싱...")
         sec_filings = get_sec_filings(ticker)
+
+        # 15.5 8-K 주요 이벤트 파싱
+        print("  → 8-K 주요 이벤트 파싱...")
+        cik = sec_filings.get("cik", "")
+        eight_k_events = parse_8k_content(ticker, cik)
 
         # 16. 기관 보유 변화
         print("  → 기관 보유 분석...")
@@ -2556,6 +3536,27 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
         # 경영진 & 뉴스
         print_officers(officers)
         print_news(news)
+
+        # 섹터별 특화 뉴스
+        print_sector_news(sector_news)
+
+        # 8-K 주요 이벤트
+        print_8k_events(eight_k_events)
+
+        # 섹터별 촉매 (해당시)
+        if sector_catalysts:
+            if sector_catalyst_type == "biotech":
+                print_biotech_catalysts(sector_catalysts)
+            elif sector_catalyst_type == "automotive":
+                print_automotive_catalysts(sector_catalysts)
+            elif sector_catalyst_type == "retail" or sector_catalyst_type == "consumer":
+                print_retail_catalysts(sector_catalysts)
+            elif sector_catalyst_type == "financial":
+                print_financial_catalysts(sector_catalysts)
+            elif sector_catalyst_type == "industrial":
+                print_industrial_catalysts(sector_catalysts)
+            elif sector_catalyst_type == "realestate":
+                print_realestate_catalysts(sector_catalysts)
 
         # ========== Gemini AI 분석 ==========
 
