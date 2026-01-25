@@ -623,7 +623,13 @@ def main():
     parser = argparse.ArgumentParser(description='전체 시장 스캐너 v2')
     parser.add_argument('--test', action='store_true', help='테스트 모드')
     parser.add_argument('--force', action='store_true', help='휴장일 무시')
+    parser.add_argument('--type', choices=['all', 'day', 'swing', 'long'], default='all',
+                        help='스캔 유형: all(전체), day(단타만), swing(스윙만), long(장기만)')
     args = parser.parse_args()
+
+    scan_day = args.type in ['all', 'day']
+    scan_swing = args.type in ['all', 'swing']
+    scan_long = args.type in ['all', 'long']
 
     print("=" * 60)
     print("🔍 전체 시장 스캐너 v2")
@@ -637,19 +643,43 @@ def main():
     init_tables()
 
     # ========== 1. 단타 스캔 (뉴스 핫 종목) ==========
-    print("\n🔥 [단타] 뉴스 핫 종목 스캔 중...")
-    news_tickers = get_news_top_tickers(30)
+    day_results = []
+    if scan_day:
+        print("\n🔥 [단타] 뉴스 핫 종목 스캔 중...")
+        news_tickers = get_news_top_tickers(30)
 
-    if not news_tickers:
-        print("  ❌ 뉴스 데이터 없음")
-        day_results = []
+        if not news_tickers:
+            print("  ❌ 뉴스 데이터 없음")
+        else:
+            for item in news_tickers[:10] if args.test else news_tickers:
+                ticker = item['ticker']
+                result = analyze_day_trade(ticker, item['total_score'] or 0)
+                if result:
+                    # AI 분석 추가
+                    result['recommendation_reason'] = generate_recommendation_reason(result)
+                    rating, rr = calculate_rating(result)
+                    result['rating'] = rating
+                    result['rr_ratio'] = rr
+                    result['split_entries'] = calculate_split_entry(
+                        result['current_price'],
+                        result['support'],
+                        result['current_price'] * 0.03
+                    )
+                    day_results.append(result)
+                time.sleep(0.3)
+            print(f"  ✅ 단타 추천: {len(day_results)}개")
     else:
-        day_results = []
-        for item in news_tickers[:10] if args.test else news_tickers:
-            ticker = item['ticker']
-            result = analyze_day_trade(ticker, item['total_score'] or 0)
+        print("\n⏭️ [단타] 스킵")
+
+    # ========== 2. 스윙 스캔 (중형 성장주) ==========
+    swing_results = []
+    if scan_swing:
+        print("\n⚖️ [스윙] 중형 성장주 스캔 중...")
+        swing_pool = SWING_UNIVERSE[:15] if args.test else SWING_UNIVERSE
+
+        for ticker in swing_pool:
+            result = analyze_swing(ticker)
             if result:
-                # AI 분석 추가
                 result['recommendation_reason'] = generate_recommendation_reason(result)
                 rating, rr = calculate_rating(result)
                 result['rating'] = rating
@@ -659,52 +689,36 @@ def main():
                     result['support'],
                     result['current_price'] * 0.03
                 )
-                day_results.append(result)
+                swing_results.append(result)
             time.sleep(0.3)
-        print(f"  ✅ 단타 추천: {len(day_results)}개")
-
-    # ========== 2. 스윙 스캔 (중형 성장주) ==========
-    print("\n⚖️ [스윙] 중형 성장주 스캔 중...")
-    swing_results = []
-    swing_pool = SWING_UNIVERSE[:15] if args.test else SWING_UNIVERSE
-
-    for ticker in swing_pool:
-        result = analyze_swing(ticker)
-        if result:
-            result['recommendation_reason'] = generate_recommendation_reason(result)
-            rating, rr = calculate_rating(result)
-            result['rating'] = rating
-            result['rr_ratio'] = rr
-            result['split_entries'] = calculate_split_entry(
-                result['current_price'],
-                result['support'],
-                result['current_price'] * 0.03
-            )
-            swing_results.append(result)
-        time.sleep(0.3)
-    print(f"  ✅ 스윙 추천: {len(swing_results)}개")
+        print(f"  ✅ 스윙 추천: {len(swing_results)}개")
+    else:
+        print("\n⏭️ [스윙] 스킵")
 
     # ========== 3. 장기 스캔 (대형 배당주) ==========
-    print("\n🛡️ [장기] 대형 배당주 스캔 중...")
     long_results = []
-    long_pool = LONGTERM_UNIVERSE[:15] if args.test else LONGTERM_UNIVERSE
+    if scan_long:
+        print("\n🛡️ [장기] 대형 배당주 스캔 중...")
+        long_pool = LONGTERM_UNIVERSE[:15] if args.test else LONGTERM_UNIVERSE
 
-    for ticker in long_pool:
-        result = analyze_longterm(ticker)
-        if result:
-            result['recommendation_reason'] = generate_recommendation_reason(result)
-            rating, rr = calculate_rating(result)
-            result['rating'] = rating
-            result['rr_ratio'] = rr
-            # 장기는 분할매수 다르게
-            result['split_entries'] = [
-                {'price': result['current_price'], 'pct': 30, 'label': '1차 매수'},
-                {'price': round(result['current_price'] * 0.95, 2), 'pct': 40, 'label': '-5% 추가'},
-                {'price': round(result['current_price'] * 0.90, 2), 'pct': 30, 'label': '-10% 적극'},
-            ]
-            long_results.append(result)
-        time.sleep(0.3)
-    print(f"  ✅ 장기 추천: {len(long_results)}개")
+        for ticker in long_pool:
+            result = analyze_longterm(ticker)
+            if result:
+                result['recommendation_reason'] = generate_recommendation_reason(result)
+                rating, rr = calculate_rating(result)
+                result['rating'] = rating
+                result['rr_ratio'] = rr
+                # 장기는 분할매수 다르게
+                result['split_entries'] = [
+                    {'price': result['current_price'], 'pct': 30, 'label': '1차 매수'},
+                    {'price': round(result['current_price'] * 0.95, 2), 'pct': 40, 'label': '-5% 추가'},
+                    {'price': round(result['current_price'] * 0.90, 2), 'pct': 30, 'label': '-10% 적극'},
+                ]
+                long_results.append(result)
+            time.sleep(0.3)
+        print(f"  ✅ 장기 추천: {len(long_results)}개")
+    else:
+        print("\n⏭️ [장기] 스킵")
 
     # ========== 4. 결과 저장 ==========
     save_scan_results(day_results, swing_results, long_results)

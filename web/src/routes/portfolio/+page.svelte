@@ -56,9 +56,12 @@
 	let selectedHolding = $state<Holding | null>(null);
 
 	// Realtime prices
-	let realtimePrices = $state<Record<string, { current: number; change_pct: number }>>({});
+	let realtimePrices = $state<Record<string, { current: number; change_pct: number; source?: string }>>({});
 	let lastRealtimeUpdate = $state<Date | null>(null);
 	let realtimeInterval: ReturnType<typeof setInterval> | null = null;
+	let marketStatus = $state<{ status: string; is_regular: boolean; label: string } | null>(null);
+	let priceSource = $state<string>('');
+	let isRealtime = $state(false);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -87,10 +90,13 @@
 
 		const tickers = holdings.map(h => h.ticker).join(',');
 		try {
-			const response = await fetch(`${API_BASE}/realtime/prices?tickers=${tickers}`);
+			const response = await fetch(`${API_BASE}/realtime/hybrid?tickers=${tickers}`);
 			if (response.ok) {
 				const data = await response.json();
 				realtimePrices = data.prices;
+				marketStatus = data.market_status;
+				priceSource = data.price_source;
+				isRealtime = data.is_realtime;
 				lastRealtimeUpdate = new Date();
 
 				// holdings 가격 업데이트
@@ -122,6 +128,13 @@
 					gain_usd: totalGain,
 					gain_pct: totalCost > 0 ? (totalGain / totalCost) * 100 : 0
 				};
+
+				// 폴링 간격 조정: 정규장 10초, 장외 60초
+				if (realtimeInterval) {
+					clearInterval(realtimeInterval);
+					const interval = isRealtime ? 10000 : 60000;
+					realtimeInterval = setInterval(fetchRealtimePrices, interval);
+				}
 			}
 		} catch (e) {
 			console.error('Realtime price fetch failed:', e);
@@ -426,14 +439,26 @@
 		<div class="loading">로딩 중...</div>
 	{:else}
 		{#if holdings.length > 0}
-			{#if lastRealtimeUpdate}
-				<div class="realtime-status">
-					<span class="realtime-indicator"></span>
-					<span class="realtime-text">10초 자동갱신</span>
+			{#if lastRealtimeUpdate && marketStatus}
+				<div class="realtime-status" class:regular={isRealtime} class:extended={!isRealtime}>
+					<span class="realtime-indicator" class:live={isRealtime}></span>
+					<span class="realtime-text">
+						{#if isRealtime}
+							🟢 실시간
+						{:else if marketStatus.status === 'premarket'}
+							🟡 PM
+						{:else if marketStatus.status === 'afterhours'}
+							🟡 AH
+						{:else}
+							⚪ {marketStatus.label}
+						{/if}
+					</span>
 					<span class="realtime-time">
 						{lastRealtimeUpdate.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
 					</span>
-					<span class="realtime-note">(참고용)</span>
+					<span class="realtime-interval">
+						({isRealtime ? '10초' : '1분'} 갱신)
+					</span>
 				</div>
 			{/if}
 			<div class="summary card">
@@ -474,7 +499,19 @@
 							</div>
 							<div class="detail">
 								<span class="label">현재가</span>
-								<span class="value">{formatCurrency(holding.current_price)}</span>
+								<span class="value">
+									{formatCurrency(holding.current_price)}
+									{#if realtimePrices[holding.ticker]?.source}
+										{@const src = realtimePrices[holding.ticker].source}
+										{#if src === 'regular'}
+											<span class="price-tag live">🟢</span>
+										{:else if src === 'premarket'}
+											<span class="price-tag pm">PM</span>
+										{:else if src === 'afterhours'}
+											<span class="price-tag ah">AH</span>
+										{/if}
+									{/if}
+								</span>
 							</div>
 							<div class="detail">
 								<span class="label">평가금</span>
@@ -1131,8 +1168,44 @@
 		color: #8b949e;
 	}
 
-	.realtime-note {
-		color: #f0883e;
+	.realtime-interval {
+		color: #8b949e;
 		font-size: 0.7rem;
+	}
+
+	.realtime-status.extended {
+		background: rgba(240, 136, 62, 0.1);
+	}
+
+	.realtime-status.extended .realtime-indicator {
+		background: #f0883e;
+	}
+
+	.realtime-indicator.live {
+		background: #3fb950;
+	}
+
+	/* 가격 태그 */
+	.price-tag {
+		font-size: 0.55rem;
+		padding: 0.1rem 0.2rem;
+		border-radius: 3px;
+		font-weight: 600;
+		margin-left: 0.2rem;
+		vertical-align: middle;
+	}
+
+	.price-tag.live {
+		font-size: 0.6rem;
+	}
+
+	.price-tag.pm {
+		background: rgba(136, 87, 229, 0.3);
+		color: #a371f7;
+	}
+
+	.price-tag.ah {
+		background: rgba(31, 111, 235, 0.3);
+		color: #58a6ff;
 	}
 </style>
