@@ -347,25 +347,39 @@ async def generate_pdf(job_id: str, ticker: str, data: dict) -> str:
 
 def render_report_html(ticker: str, data: dict) -> str:
     """리포트 HTML 렌더링"""
-    basic = data.get("basic_info", {})
-    borrow = data.get("borrow_data", {})
-    tech = data.get("technicals", {})
-    squeeze = data.get("squeeze_score", {})
-    fib = data.get("fibonacci", {})
-    ai = data.get("ai_analysis", {})
+    basic = data.get("basic_info") or {}
+    borrow = data.get("borrow_data") or {}
+    tech = data.get("technicals") or {}
+    squeeze = data.get("squeeze_score") or {}
+    fib = data.get("fibonacci") or {}
+    ai = data.get("ai_analysis")
     holding = data.get("holding_info")
 
+    # dict가 아닌 경우 빈 dict로 처리
+    if not isinstance(basic, dict):
+        basic = {}
+    if not isinstance(borrow, dict):
+        borrow = {}
+    if not isinstance(tech, dict):
+        tech = {}
+    if not isinstance(squeeze, dict):
+        squeeze = {}
+    if not isinstance(fib, dict):
+        fib = {}
+    if not isinstance(ai, dict):
+        ai = {}
+
     # 가격 정보
-    price = basic.get("price", 0)
-    change_pct = basic.get("change_percent", 0)
+    price = basic.get("price", 0) or 0
+    change_pct = basic.get("change_percent", 0) or 0
     change_class = "positive" if change_pct >= 0 else "negative"
 
     # 스퀴즈 점수
-    score = squeeze.get("score", 0)
-    grade = squeeze.get("grade", "N/A")
+    score = squeeze.get("score", 0) or 0
+    grade = squeeze.get("grade", "N/A") or "N/A"
 
     # 피보나치 레벨
-    fib_levels = fib.get("levels", {})
+    fib_levels = fib.get("levels", {}) or {}
 
     # AI 분석 섹션
     ai_strengths = ai.get("strengths", []) if ai else []
