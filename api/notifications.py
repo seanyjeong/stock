@@ -27,10 +27,10 @@ class PushSubscription(BaseModel):
 
 
 class NotificationSettings(BaseModel):
-    data_update_alerts: bool = True
     price_alerts: bool = True
     regsho_alerts: bool = True
     blog_alerts: bool = True
+    recommendation_alerts: bool = True  # 추천 종목 알림
 
 
 _table_initialized = False
@@ -64,19 +64,13 @@ def ensure_notifications_table():
             CREATE TABLE IF NOT EXISTS notification_settings (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                data_update_alerts BOOLEAN DEFAULT TRUE,
                 price_alerts BOOLEAN DEFAULT TRUE,
                 regsho_alerts BOOLEAN DEFAULT TRUE,
                 blog_alerts BOOLEAN DEFAULT TRUE,
+                recommendation_alerts BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id)
             )
-        """)
-
-        # Add data_update_alerts column if not exists
-        cur.execute("""
-            ALTER TABLE notification_settings
-            ADD COLUMN IF NOT EXISTS data_update_alerts BOOLEAN DEFAULT TRUE
         """)
 
         conn.commit()
@@ -165,7 +159,8 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
 
     try:
         cur.execute("""
-            SELECT data_update_alerts, price_alerts, regsho_alerts, blog_alerts
+            SELECT price_alerts, regsho_alerts, blog_alerts,
+                   COALESCE(recommendation_alerts, TRUE) as recommendation_alerts
             FROM notification_settings
             WHERE user_id = %s
         """, (user["id"],))
@@ -175,10 +170,10 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
         if not result:
             # 기본 설정 반환
             return {
-                "data_update_alerts": True,
                 "price_alerts": True,
                 "regsho_alerts": True,
-                "blog_alerts": True
+                "blog_alerts": True,
+                "recommendation_alerts": True
             }
 
         return result
@@ -196,16 +191,16 @@ async def update_notification_settings(settings: NotificationSettings, user: dic
 
     try:
         cur.execute("""
-            INSERT INTO notification_settings (user_id, data_update_alerts, price_alerts, regsho_alerts, blog_alerts)
+            INSERT INTO notification_settings (user_id, price_alerts, regsho_alerts, blog_alerts, recommendation_alerts)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
-                data_update_alerts = EXCLUDED.data_update_alerts,
                 price_alerts = EXCLUDED.price_alerts,
                 regsho_alerts = EXCLUDED.regsho_alerts,
                 blog_alerts = EXCLUDED.blog_alerts,
+                recommendation_alerts = EXCLUDED.recommendation_alerts,
                 updated_at = CURRENT_TIMESTAMP
-            RETURNING data_update_alerts, price_alerts, regsho_alerts, blog_alerts
-        """, (user["id"], settings.data_update_alerts, settings.price_alerts, settings.regsho_alerts, settings.blog_alerts))
+            RETURNING price_alerts, regsho_alerts, blog_alerts, recommendation_alerts
+        """, (user["id"], settings.price_alerts, settings.regsho_alerts, settings.blog_alerts, settings.recommendation_alerts))
 
         result = cur.fetchone()
         conn.commit()
@@ -283,19 +278,31 @@ def send_push_notification(subscription: dict, title: str, body: str, url: str =
         return False
 
 
-def send_data_update_notification():
-    """데이터 업데이트 알림 발송 (cron에서 호출)"""
+def send_recommendation_notification(rec_type: str, count: int):
+    """추천 종목 알림 발송 (스캐너에서 호출)
+
+    Args:
+        rec_type: 'day_trade', 'swing', 'longterm'
+        count: 추천 종목 수
+    """
     ensure_notifications_table()
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
+    type_labels = {
+        'day_trade': '단타',
+        'swing': '스윙',
+        'longterm': '장기'
+    }
+    label = type_labels.get(rec_type, rec_type)
+
     try:
-        # data_update_alerts가 켜진 사용자의 구독 정보 조회
+        # recommendation_alerts가 켜진 사용자의 구독 정보 조회
         cur.execute("""
             SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
             FROM push_subscriptions ps
             JOIN notification_settings ns ON ps.user_id = ns.user_id
-            WHERE ns.data_update_alerts = TRUE
+            WHERE ns.recommendation_alerts = TRUE
         """)
         subscriptions = cur.fetchall()
 
@@ -316,8 +323,8 @@ def send_data_update_notification():
             result = send_push_notification(
                 sub,
                 "달러농장",
-                "주가 데이터가 업데이트되었습니다!",
-                "/"
+                f"새로운 {label} 추천 종목 {count}개가 등록되었습니다!",
+                f"/?type={rec_type}"
             )
             if result is True:
                 sent += 1
@@ -335,9 +342,9 @@ def send_data_update_notification():
         conn.close()
 
 
-@router.post("/send-data-update")
-async def trigger_data_update_notification():
-    """데이터 업데이트 알림 트리거 (내부용)"""
+@router.post("/send-recommendation")
+async def trigger_recommendation_notification(rec_type: str = "day_trade", count: int = 5):
+    """추천 종목 알림 트리거 (내부용)"""
     # TODO: 내부 호출 인증 추가 필요
-    result = send_data_update_notification()
+    result = send_recommendation_notification(rec_type, count)
     return result

@@ -9,10 +9,6 @@ Claude Code 세션 시작하면:
    ```bash
    /recall dailystockstory
    ```
-3. **브리핑 출력** (선택):
-   ```bash
-   uv run python read_briefing.py
-   ```
 
 ---
 
@@ -42,26 +38,22 @@ Claude Code 세션 시작하면:
 
 ---
 
-## 데이터 수집 (외부 자동화)
+## 데이터 수집 & 스케줄
 
-**수집 스크립트 (cron으로 자동 실행):**
+**v3 Lite - 간소화된 수집:**
+- 주가 수집 제거 (yfinance 실시간 사용)
+- 숏스퀴즈 수집 제거 (deep_analyzer가 실시간 분석)
+
+**cron 스케줄:**
 ```bash
-uv run python ~/dailystockstory/stock_collector.py
-```
+# 데이터 수집 (하루 1번) - 09:00 KST 화-토
+0 9 * * 2-6 stock_collector.py  # RegSHO + 환율 + 블로그
 
-**수집 항목:**
-| 항목 | 소스 | 저장 위치 |
-|------|------|-----------|
-| 주가 | yfinance | PostgreSQL |
-| RegSHO | NASDAQ | PostgreSQL |
-| 환율 | x-rates | PostgreSQL |
-| 블로그 | 까꿍토끼 | PostgreSQL |
-
-**cron 설정 (매 시간):**
-```bash
-crontab -e
-# 추가:
-0 * * * * cd ~/dailystockstory && uv run python stock_collector.py >> /tmp/stock_collector.log 2>&1
+# 스캐너 시스템
+0 17 * * 1-5 news_collector.py      # 뉴스 수집 (프리마켓 1시간 전)
+30 17 * * 1-5 scanner --type day    # 단타 추천 + 알림
+0 9 * * 2-6 scanner --type swing    # 스윙 추천 + 알림
+5 9 * * 2-6 scanner --type long     # 장기 추천 + 알림
 ```
 
 ---
@@ -75,7 +67,7 @@ crontab -e
 | 세율 | **22%** (양도세 20% + 지방세 2%) |
 | 신고 | 다음해 5월 (홈택스) |
 
-> ⚠️ 250만원 이하면 세금 없음!
+> 250만원 이하면 세금 없음!
 
 ---
 
@@ -83,34 +75,16 @@ crontab -e
 
 | 순위 | 사이트 | 용도 |
 |------|--------|------|
-| 1 | [Benzinga](https://www.benzinga.com/quote/) | 실시간 가격, 프리/애프터 |
-| 2 | [NASDAQ Trader](https://www.nasdaqtrader.com/trader.aspx?id=regshothreshold) | RegSHO Threshold List |
+| 1 | [NASDAQ Trader](https://www.nasdaqtrader.com/trader.aspx?id=regshothreshold) | RegSHO Threshold List |
+| 2 | [Chartexchange](https://chartexchange.com/) | 대차이자, Short Interest |
 | 3 | [Stocktwits](https://stocktwits.com/symbol/) | 커뮤니티 반응, 센티먼트 |
-| 4 | [Chartexchange](https://chartexchange.com/) | 대차이자, Short Interest |
-
-**야후/구글 파이낸스 사용 금지** - 프리마켓/애프터 데이터 부정확
+| 4 | [Finviz](https://finviz.com/quote.ashx?t=) | 기본 정보, 뉴스 |
 
 ---
 
-## 세션 기록 저장
+## 미국주식 분석 (deep_analyzer.py v4)
 
-중요한 분석이나 결정은 메모리에 저장:
-
-```bash
-cd $CLAUDE_OPC_DIR && PYTHONPATH=. uv run python scripts/core/store_learning.py \
-  --session-id "stock-YYYYMMDD" \
-  --type WORKING_SOLUTION \
-  --content "분석 내용" \
-  --context "주식 분석" \
-  --tags "stock,short-squeeze,종목명" \
-  --confidence high
-```
-
----
-
-## 미국주식 분석 (deep_analyzer.py v4) 🔥
-
-**사용자가 미국주식 관련 질문하면 이거 써! (나스닥의 신 에디션)**
+**사용자가 미국주식 관련 질문하면 이거 써!**
 
 ```bash
 # 종목 분석 (AI 포함)
@@ -126,22 +100,12 @@ uv run python deep_analyzer.py GLSI --normal
 **언제 쓸까?**
 | 질문 유형 | 사용 |
 |----------|------|
-| "BNAI 분석해줘" | ✅ `deep_analyzer.py BNAI` |
-| "이 종목 숏스퀴즈 가능해?" | ✅ `deep_analyzer.py {ticker}` |
-| "Zero Borrow야?" | ✅ `deep_analyzer.py {ticker} --no-ai` |
-| "SEC 공시 뭐 있어?" | ✅ `deep_analyzer.py {ticker} --no-ai` |
-| "락업 언제 풀려?" | ✅ `deep_analyzer.py {ticker}` |
-| "SPAC이야?" | ✅ `deep_analyzer.py {ticker}` |
-| "FDA 승인났어?" | ✅ `deep_analyzer.py {ticker}` (바이오텍 자동 감지) |
-| "임상 몇상이야?" | ✅ `deep_analyzer.py {ticker}` (ClinicalTrials.gov 연동) |
-| "AI 관련 뉴스 있어?" | ✅ `deep_analyzer.py {ticker}` (Tech/AI 자동 감지) |
-| "내 포트폴리오 보여줘" | ❌ `read_briefing.py` 사용 |
-
-**v4 신규 기능:**
-- 섹터별 특화 뉴스 (바이오텍/AI·Tech/에너지/일반)
-- 바이오텍 촉매 (FDA Fast Track, ClinicalTrials.gov)
-- 8-K 이벤트 파싱 (FDA승인, 임상결과, 계약, 유증)
-- 뉴스 60일 필터 + 구글뉴스 백업
+| "BNAI 분석해줘" | `deep_analyzer.py BNAI` |
+| "이 종목 숏스퀴즈 가능해?" | `deep_analyzer.py {ticker}` |
+| "Zero Borrow야?" | `deep_analyzer.py {ticker} --no-ai` |
+| "SEC 공시 뭐 있어?" | `deep_analyzer.py {ticker} --no-ai` |
+| "락업 언제 풀려?" | `deep_analyzer.py {ticker}` |
+| "FDA 승인났어?" | `deep_analyzer.py {ticker}` (바이오텍 자동 감지) |
 
 **분석 항목:**
 - 기본정보, 가격, Float
@@ -149,27 +113,25 @@ uv run python deep_analyzer.py GLSI --normal
 - 기술적 (RSI, MACD, 볼린저)
 - SEC 키워드 (워런트/희석/빚/락업)
 - FTD, 옵션체인, 소셜센티먼트
-- 피보나치, 볼륨프로파일, 다크풀
-- SPAC/Earnout 조건
-- **섹터별 뉴스** (Biotech FDA/AI Tech/Energy)
-- **8-K 이벤트** (FDA승인, 임상, 계약, 유증 자동분류)
-- **바이오텍 촉매** (ClinicalTrials.gov 임상정보)
+- 피보나치, 볼륨프로파일
+- 섹터별 뉴스/촉매 (9개 섹터)
+- 8-K 이벤트, 바이오텍 촉매
 - Gemini AI 종합 분석
 
 ---
 
 ## 프로젝트 구조
 
-> **상세 구조는 `ARCHITECTURE.md` 참조** (DB 스키마, API 목록, 컴포넌트 구조 포함)
+> **상세 구조는 `ARCHITECTURE.md` 참조**
 
 **핵심 파일:**
 | 파일 | 역할 |
 |------|------|
 | `deep_analyzer.py` | 초정밀 주식 분석기 (v4) |
-| `stock_collector.py` | 데이터 수집 (cron) |
-| `read_briefing.py` | 브리핑 조회 |
-| `api/realtime.py` | 실시간 가격 (Finnhub+yfinance 하이브리드) |
-| `scanners/full_market_scanner.py` | 종목 스캔 + AI 추천 |
+| `stock_collector.py` | 데이터 수집 v3 Lite (RegSHO, 환율, 블로그) |
+| `scanners/full_market_scanner.py` | 종목 스캔 + AI 추천 + 알림 |
+| `api/realtime.py` | 실시간 가격 (yfinance) |
+| `api/notifications.py` | 푸시 알림 (추천/RegSHO) |
 
 ---
 

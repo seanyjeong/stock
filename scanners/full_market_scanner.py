@@ -986,6 +986,25 @@ def main():
 
     print("\n✅ 스캔 완료!")
 
+    # ========== 6. 푸시 알림 발송 ==========
+    print("\n🔔 푸시 알림 발송...")
+    try:
+        from api.notifications import send_recommendation_notification
+
+        if scan_day and day_results:
+            result = send_recommendation_notification('day_trade', min(len(day_results), 5))
+            print(f"  - 단타: {result.get('sent', 0)}건 발송")
+
+        if scan_swing and swing_results:
+            result = send_recommendation_notification('swing', min(len(swing_results), 5))
+            print(f"  - 스윙: {result.get('sent', 0)}건 발송")
+
+        if scan_long and long_results:
+            result = send_recommendation_notification('longterm', min(len(long_results), 5))
+            print(f"  - 장기: {result.get('sent', 0)}건 발송")
+    except Exception as e:
+        print(f"  - 알림 발송 실패: {e}")
+
 
 if __name__ == '__main__':
     main()

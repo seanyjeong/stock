@@ -74,26 +74,24 @@ sudo journalctl -u stock-api -f    # 로그 확인
 ```
 ~/dailystockstory/
 ├── api/                      # 백엔드 API
-│   ├── main.py              # FastAPI 메인
+│   ├── main.py              # FastAPI 메인 + 추천 API
 │   ├── auth.py              # 인증 (카카오 OAuth)
 │   ├── profile.py           # 투자성향 프로필 API
-│   ├── realtime.py          # 실시간 가격 (Finnhub polling)
-│   └── trades.py            # 거래 API
+│   ├── realtime.py          # 실시간 가격 (yfinance)
+│   ├── notifications.py     # 푸시 알림 (VAPID)
+│   ├── portfolio.py         # 포트폴리오 API
+│   ├── watchlist.py         # 관심종목 API
+│   └── trades.py            # 거래이력 API
 ├── scanners/                 # 스캐너 시스템 (v2)
 │   ├── news_collector.py    # 뉴스 수집 (SEC/Finviz/Yahoo)
-│   └── full_market_scanner.py # 시장 스캔 + Gemini AI
+│   └── full_market_scanner.py # 시장 스캔 + Gemini AI + 추천 알림
+├── deep_analyzer.py          # 숏스퀴즈 정밀 분석 (v4)
+├── stock_collector.py        # 데이터 수집 v3 Lite (RegSHO, 환율, 블로그)
 ├── web/                      # 프론트엔드 (SvelteKit)
-│   ├── src/
-│   │   ├── routes/          # 페이지
-│   │   └── lib/
-│   │       └── components/
-│   │           ├── ProfileRecommendations.svelte  # 맞춤 추천
-│   │           └── RecommendationModal.svelte     # 상세 분석 모달
+│   ├── src/routes/          # 페이지
 │   └── package.json
-├── stock_collector.py        # 데이터 수집 (cron)
 ├── .env                      # 환경 변수 (GEMINI_API_KEY 포함)
 ├── CLAUDE.md                 # Claude 설정
-├── HANDOFF_v2.md             # 작업 인수인계
 └── ARCHITECTURE.md           # 이 문서
 ```
 

@@ -12,10 +12,10 @@
 	let isAdmin = $state(false);
 
 	// Settings
-	let dataUpdateAlerts = $state(true);
 	let priceAlerts = $state(true);
 	let regshoAlerts = $state(true);
 	let blogAlerts = $state(true);
+	let recommendationAlerts = $state(true);
 	let isSaving = $state(false);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
@@ -78,10 +78,10 @@
 
 			if (response.ok) {
 				const data = await response.json();
-				dataUpdateAlerts = data.data_update_alerts ?? true;
 				priceAlerts = data.price_alerts;
 				regshoAlerts = data.regsho_alerts;
 				blogAlerts = data.blog_alerts;
+				recommendationAlerts = data.recommendation_alerts ?? true;
 			}
 		} catch (e) {
 			console.error('Failed to load settings:', e);
@@ -182,10 +182,10 @@
 				method: 'PUT',
 				headers: getAuthHeaders(),
 				body: JSON.stringify({
-					data_update_alerts: dataUpdateAlerts,
 					price_alerts: priceAlerts,
 					regsho_alerts: regshoAlerts,
 					blog_alerts: blogAlerts,
+					recommendation_alerts: recommendationAlerts,
 				}),
 			});
 
@@ -283,20 +283,18 @@
 				<div class="toggle-list">
 					<label class="toggle-item">
 						<div class="toggle-info">
-							<span class="toggle-label">데이터 업데이트</span>
-							<span class="toggle-desc">주가 데이터 수집 완료 시 알림</span>
-						</div>
-						<input type="checkbox" bind:checked={dataUpdateAlerts} onchange={saveSettings} />
-					</label>
-
-					<!-- 가격 알림은 실시간 API 필요하여 비활성화 -->
-
-					<label class="toggle-item">
-						<div class="toggle-info">
 							<span class="toggle-label">RegSHO 알림</span>
 							<span class="toggle-desc">보유 종목 RegSHO 등재/해제 시 알림</span>
 						</div>
 						<input type="checkbox" bind:checked={regshoAlerts} onchange={saveSettings} />
+					</label>
+
+					<label class="toggle-item">
+						<div class="toggle-info">
+							<span class="toggle-label">추천 종목 알림</span>
+							<span class="toggle-desc">새 단타/스윙/장기 추천 종목 등록 시 알림</span>
+						</div>
+						<input type="checkbox" bind:checked={recommendationAlerts} onchange={saveSettings} />
 					</label>
 
 					{#if isAdmin}

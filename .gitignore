@@ -10,6 +10,7 @@ __pycache__/
 .venv/
 venv/
 .Python
+*.log
 
 # Node
 node_modules/
@@ -33,3 +34,20 @@ thoughts/
 .ralphy/
 .tldr/
 .tldrignore
+
+# Tasks & Handoffs (세션별 임시 파일)
+tasks.yaml
+HANDOFF*.md
+TODO.md
+
+# Old plans (완료된 계획서)
+docs/plans/
+PLAN_*.md
+PRD.md
+
+# Temporary analysis
+*-bnai.md
+portfolio.md
+
+# Lock files (선택적)
+# uv.lock
