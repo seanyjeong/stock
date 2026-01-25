@@ -67,7 +67,7 @@
 	</div>
 
 	{#if recommendations && recommendations.length > 0}
-		<p class="profile-desc">{getProfileInfo().desc} 추천 종목</p>
+		<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">매일 21:30 업데이트</span></p>
 
 		<div class="rec-list">
 			{#each recommendations as rec}
@@ -194,6 +194,12 @@
 		font-size: 0.8rem;
 		color: #8b949e;
 		margin: 0 0 0.75rem;
+	}
+
+	.update-time {
+		font-size: 0.65rem;
+		color: #6e7681;
+		margin-left: 0.5rem;
 	}
 
 	.rec-list {
