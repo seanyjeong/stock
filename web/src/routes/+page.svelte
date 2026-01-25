@@ -51,6 +51,37 @@
 	let squeezeExpanded = $state(browser ? localStorage.getItem('squeezeExpanded') !== 'false' : true);
 	let recExpanded = $state(browser ? localStorage.getItem('recExpanded') !== 'false' : true);
 
+	// 공지사항 팝업
+	let showAnnouncementPopup = $state(false);
+	let currentAnnouncement = $state<{id: number; title: string; content: string; is_important: boolean} | null>(null);
+
+	function checkAnnouncementPopup() {
+		if (!announcements?.announcements?.length) return;
+
+		const latestAnn = announcements.announcements[0];
+		const dismissedKey = `ann_dismissed_${latestAnn.id}`;
+		const dismissedAt = localStorage.getItem(dismissedKey);
+
+		if (dismissedAt) {
+			const dismissedTime = parseInt(dismissedAt);
+			const now = Date.now();
+			// 24시간 이내면 표시 안함
+			if (now - dismissedTime < 24 * 60 * 60 * 1000) return;
+		}
+
+		currentAnnouncement = latestAnn;
+		showAnnouncementPopup = true;
+	}
+
+	function dismissAnnouncement(hours: number) {
+		if (!currentAnnouncement) return;
+		if (hours > 0) {
+			localStorage.setItem(`ann_dismissed_${currentAnnouncement.id}`, Date.now().toString());
+		}
+		showAnnouncementPopup = false;
+		currentAnnouncement = null;
+	}
+
 	// 접기/펼치기 상태 저장
 	$effect(() => {
 		if (browser) {
@@ -240,6 +271,9 @@
 		} catch (e) {
 			console.error('Failed to load profile recommendations:', e);
 		}
+
+		// 공지사항 팝업 체크
+		checkAnnouncementPopup();
 	});
 
 	// Tax calculation (22% capital gains tax, 2.5M KRW deduction)
@@ -617,23 +651,7 @@
 				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} />
 			{/if}
 
-			<!-- Announcements Section -->
-			{#if announcements && announcements.announcements.length > 0}
-				<section class="card announcements-card">
-					<h2><Icon name="megaphone" size={20} /> 공지사항</h2>
-					<div class="announcements-list">
-						{#each announcements.announcements as ann}
-							<div class="announcement-item" class:important={ann.is_important}>
-								{#if ann.is_important}
-									<span class="important-badge">중요</span>
-								{/if}
-								<div class="announcement-title">{ann.title}</div>
-								<div class="announcement-content">{ann.content}</div>
-							</div>
-						{/each}
-					</div>
-				</section>
-			{/if}
+			<!-- 공지사항은 팝업으로 표시 -->
 
 			<!-- Disclaimer Section -->
 			<section class="card disclaimer-card">
@@ -697,6 +715,27 @@
 					{/if}
 				</section>
 			{/if}
+		</div>
+	{/if}
+
+	<!-- 공지사항 팝업 -->
+	{#if showAnnouncementPopup && currentAnnouncement}
+		<div class="announcement-overlay" onclick={() => dismissAnnouncement(0)}>
+			<div class="announcement-popup" onclick={(e) => e.stopPropagation()}>
+				{#if currentAnnouncement.is_important}
+					<div class="popup-badge">중요</div>
+				{/if}
+				<h3 class="popup-title">{currentAnnouncement.title}</h3>
+				<p class="popup-content">{currentAnnouncement.content}</p>
+				<div class="popup-actions">
+					<button class="popup-btn secondary" onclick={() => dismissAnnouncement(24)}>
+						24시간 보지 않기
+					</button>
+					<button class="popup-btn primary" onclick={() => dismissAnnouncement(0)}>
+						확인
+					</button>
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -1502,53 +1541,86 @@
 		color: #3fb950;
 	}
 
-	/* Announcements Section */
-	.announcements-card {
-		border-left: 3px solid #f0883e;
-	}
-
-	.announcements-list {
+	/* 공지사항 팝업 */
+	.announcement-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
 		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
 	}
 
-	.announcement-item {
-		background: #21262d;
-		padding: 0.75rem;
-		border-radius: 8px;
+	.announcement-popup {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 16px;
+		padding: 1.5rem;
+		max-width: 320px;
+		width: 100%;
 		position: relative;
 	}
 
-	.announcement-item.important {
-		border: 1px solid #f0883e;
-		background: rgba(240, 136, 62, 0.1);
-	}
-
-	.important-badge {
+	.popup-badge {
 		position: absolute;
-		top: 0.5rem;
-		right: 0.5rem;
-		font-size: 0.6rem;
-		padding: 0.15rem 0.4rem;
+		top: -8px;
+		left: 1rem;
+		font-size: 0.7rem;
+		padding: 0.2rem 0.6rem;
 		background: #f0883e;
 		color: #fff;
 		border-radius: 4px;
 		font-weight: 600;
 	}
 
-	.announcement-title {
-		font-size: 0.9rem;
-		font-weight: 600;
+	.popup-title {
+		font-size: 1.1rem;
+		font-weight: 700;
 		color: #f0f6fc;
-		margin-bottom: 0.375rem;
-		padding-right: 3rem;
+		margin: 0 0 0.75rem;
+		line-height: 1.3;
 	}
 
-	.announcement-content {
-		font-size: 0.8rem;
+	.popup-content {
+		font-size: 0.9rem;
 		color: #8b949e;
-		line-height: 1.4;
+		line-height: 1.5;
+		margin: 0 0 1.25rem;
+	}
+
+	.popup-actions {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.popup-btn {
+		flex: 1;
+		padding: 0.75rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.popup-btn.secondary {
+		background: #21262d;
+		color: #8b949e;
+		border: 1px solid #30363d;
+	}
+
+	.popup-btn.primary {
+		background: #238636;
+		color: white;
+	}
+
+	.popup-btn:active {
+		transform: scale(0.98);
 	}
 
 	/* Blog Header Toggle */

@@ -618,11 +618,56 @@ except Exception as e:
 
 ---
 
+## CLI 분석 도구
+
+### deep_analyzer.py (v3)
+**초정밀 주식 분석기** - 숏스퀴즈 전문 분석 + Gemini AI
+
+```bash
+# 사용법
+uv run python deep_analyzer.py BNAI          # AI 분석 포함
+uv run python deep_analyzer.py BNAI --no-ai  # AI 스킵 (빠름)
+uv run python deep_analyzer.py BNAI --normal # 일반 분석 모드 강제
+```
+
+**분석 항목:**
+| 구분 | 항목 |
+|------|------|
+| **기본** | 회사 개요, 가격, 시가총액, Float |
+| **숏 데이터** | Zero Borrow, Short %, Borrow Rate, DTC |
+| **기술적** | RSI, MACD, 볼린저, ATR |
+| **SEC** | 워런트/희석/Covenant/빚/락업 키워드 검색 |
+| **FTD** | Failure to Deliver 추이 |
+| **옵션** | 콜/풋 OI, Max Pain, 감마 집중 |
+| **소셜** | Stocktwits + Reddit + Finviz 센티먼트 |
+| **피보나치** | 지지/저항선, 미충전 갭 |
+| **볼륨 프로파일** | POC, Value Area |
+| **다크풀** | 숏 볼륨, 장외거래 비율 |
+| **SEC Filing** | S-1/S-4/DEFM14A 파싱, SPAC Earnout |
+| **기관** | Top 5 기관 보유 |
+| **동종업체** | 섹터 PE 비교 |
+| **AI** | Gemini 종합 분석 (숏스퀴즈/일반 모드 자동 전환) |
+
+**스퀴즈 점수 (0-100):**
+- Zero Borrow: +30점
+- Short % 높음: +15점
+- Float 작음: +10점
+- 내부자 보유 높음: +5점
+
+---
+
 ## 현재 버전
 - **프론트엔드**: v1.9.5
+- **deep_analyzer**: v3
 - **문서 업데이트**: 2026-01-25
 
 ## 변경 이력
+
+### deep_analyzer v3 (2026-01-25)
+- SPAC Earnout 조건 자동 추출 (S-4, DEFM14A)
+- 락업 가격 추출 개선 (가격 기반 락업)
+- google.genai 새 SDK 마이그레이션
+- 한글화 완료 (강세/약세/혼조)
 
 ### v1.9.5 (2026-01-25)
 - 투자성향 프로필 시스템 추가

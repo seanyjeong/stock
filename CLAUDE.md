@@ -128,11 +128,50 @@ cd $CLAUDE_OPC_DIR && PYTHONPATH=. uv run python scripts/core/store_learning.py 
 
 ---
 
+## 미국주식 분석 (deep_analyzer.py v3)
+
+**사용자가 미국주식 관련 질문하면 이거 써!**
+
+```bash
+# 종목 분석 (AI 포함)
+uv run python deep_analyzer.py BNAI
+
+# 빠른 분석 (AI 스킵)
+uv run python deep_analyzer.py BNAI --no-ai
+
+# 일반 분석 모드 강제 (숏스퀴즈 아닐 때)
+uv run python deep_analyzer.py BNAI --normal
+```
+
+**언제 쓸까?**
+| 질문 유형 | 사용 |
+|----------|------|
+| "BNAI 분석해줘" | ✅ `deep_analyzer.py BNAI` |
+| "이 종목 숏스퀴즈 가능해?" | ✅ `deep_analyzer.py {ticker}` |
+| "Zero Borrow야?" | ✅ `deep_analyzer.py {ticker} --no-ai` |
+| "SEC 공시 뭐 있어?" | ✅ `deep_analyzer.py {ticker} --no-ai` |
+| "락업 언제 풀려?" | ✅ `deep_analyzer.py {ticker}` |
+| "SPAC이야?" | ✅ `deep_analyzer.py {ticker}` |
+| "내 포트폴리오 보여줘" | ❌ `read_briefing.py` 사용 |
+
+**분석 항목:**
+- 기본정보, 가격, Float
+- 숏 데이터 (Zero Borrow, SI%, Borrow Rate, DTC)
+- 기술적 (RSI, MACD, 볼린저)
+- SEC 키워드 (워런트/희석/빚/락업)
+- FTD, 옵션체인, 소셜센티먼트
+- 피보나치, 볼륨프로파일, 다크풀
+- SPAC/Earnout 조건
+- Gemini AI 종합 분석
+
+---
+
 ## 폴더 구조
 
 ```
 ~/dailystockstory/
 ├── CLAUDE.md            ← 설정
+├── deep_analyzer.py     ← 🔥 초정밀 주식 분석기 v3
 ├── stock_collector.py   ← 데이터 수집 (cron)
 ├── read_briefing.py     ← 브리핑 읽기 (Claude용)
 ├── scrape_blog.py       ← 블로그 스크래핑 (collector에 통합됨)
