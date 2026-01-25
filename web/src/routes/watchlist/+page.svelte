@@ -102,11 +102,11 @@
 		}
 	}
 
-	function getAuthHeaders() {
+	function getAuthHeaders(): Record<string, string> {
 		const token = localStorage.getItem('access_token');
 		if (!token) {
 			goto('/login');
-			return {};
+			return { 'Content-Type': 'application/json' };
 		}
 		return {
 			'Authorization': `Bearer ${token}`,
