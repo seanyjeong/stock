@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import Icon from './Icons.svelte';
 	import RecommendationModal from './RecommendationModal.svelte';
 
@@ -38,7 +40,53 @@
 
 	let { profileType, recommendations, createdAt, formatCurrency, formatDate, showHeader = true }: Props = $props();
 
+	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
+
 	let selectedRecommendation = $state<ProfileRecommendation | null>(null);
+	let watchlistTickers = $state<string[]>([]);
+	let toastMessage = $state('');
+
+	onMount(async () => {
+		await loadWatchlistTickers();
+	});
+
+	async function loadWatchlistTickers() {
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/`, { credentials: 'include' });
+			if (response.ok) {
+				const data = await response.json();
+				watchlistTickers = data.items?.map((item: { ticker: string }) => item.ticker) || [];
+			}
+		} catch {
+			// 로그인 안 된 경우 무시
+		}
+	}
+
+	async function addToWatchlist(ticker: string) {
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ ticker })
+			});
+
+			if (response.ok) {
+				watchlistTickers = [...watchlistTickers, ticker];
+				showToast(`${ticker} 관심종목에 추가됨`);
+			} else {
+				const data = await response.json();
+				showToast(data.detail || '추가 실패');
+			}
+		} catch {
+			showToast('네트워크 오류');
+		}
+	}
+
+	function showToast(message: string) {
+		toastMessage = message;
+		setTimeout(() => { toastMessage = ''; }, 2000);
+	}
 
 	function openModal(rec: ProfileRecommendation) {
 		selectedRecommendation = rec;
@@ -159,7 +207,13 @@
 	recommendation={selectedRecommendation}
 	onClose={closeModal}
 	{formatCurrency}
+	onAddToWatchlist={addToWatchlist}
+	{watchlistTickers}
 />
+
+{#if toastMessage}
+	<div class="toast">{toastMessage}</div>
+{/if}
 
 <style>
 	.card {
@@ -415,5 +469,27 @@
 		text-align: center;
 		padding: 2rem 1rem;
 		font-size: 0.875rem;
+	}
+
+	.toast {
+		position: fixed;
+		bottom: 5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #238636;
+		color: white;
+		padding: 0.75rem 1.25rem;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		z-index: 1100;
+		animation: fadeInOut 2s ease;
+	}
+
+	@keyframes fadeInOut {
+		0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+		15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+		85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+		100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 	}
 </style>

@@ -29,9 +29,24 @@
 		recommendation: Recommendation | null;
 		onClose: () => void;
 		formatCurrency: (value: number) => string;
+		onAddToWatchlist?: (ticker: string) => void;
+		watchlistTickers?: string[];
 	}
 
-	let { recommendation, onClose, formatCurrency }: Props = $props();
+	let { recommendation, onClose, formatCurrency, onAddToWatchlist, watchlistTickers = [] }: Props = $props();
+
+	let adding = $state(false);
+
+	function isInWatchlist(ticker: string): boolean {
+		return watchlistTickers.includes(ticker);
+	}
+
+	async function handleAddToWatchlist() {
+		if (!recommendation || !onAddToWatchlist) return;
+		adding = true;
+		await onAddToWatchlist(recommendation.ticker);
+		adding = false;
+	}
 
 	function handleBackdropClick(e: MouseEvent) {
 		if (e.target === e.currentTarget) {
@@ -163,6 +178,22 @@
 			{/if}
 
 			<div class="modal-footer">
+				{#if onAddToWatchlist}
+					<button
+						class="btn-watchlist"
+						onclick={handleAddToWatchlist}
+						disabled={adding || isInWatchlist(recommendation.ticker)}
+					>
+						<Icon name="star" size={16} />
+						{#if isInWatchlist(recommendation.ticker)}
+							추가됨
+						{:else if adding}
+							추가 중...
+						{:else}
+							관심종목
+						{/if}
+					</button>
+				{/if}
 				<a href="/stock/{recommendation.ticker}" class="btn-chart">
 					<Icon name="chart" size={16} /> 차트 보기
 				</a>
@@ -410,6 +441,35 @@
 	.modal-footer {
 		padding: 1rem 1.25rem 1.25rem;
 		border-top: 1px solid #21262d;
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-watchlist {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		flex: 1;
+		padding: 0.75rem;
+		background: #21262d;
+		color: #f0f6fc;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-watchlist:hover:not(:disabled) {
+		background: #30363d;
+		border-color: #58a6ff;
+	}
+
+	.btn-watchlist:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.btn-chart {
@@ -417,7 +477,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.4rem;
-		width: 100%;
+		flex: 1;
 		padding: 0.75rem;
 		background: #238636;
 		color: white;

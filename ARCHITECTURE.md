@@ -524,10 +524,11 @@ web/src/
 │   ├── +page.svelte           # 홈 (포트폴리오, RegSHO Top5)
 │   ├── +page.server.ts        # 서버사이드 데이터 로드
 │   ├── login/+page.svelte     # 카카오 로그인
-│   ├── portfolio/+page.svelte # 포트폴리오 관리 + 거래 이력
+│   ├── portfolio/+page.svelte # 포트폴리오 관리
+│   ├── history/+page.svelte   # 거래 이력
 │   ├── squeeze/+page.svelte   # 스퀴즈 분석 (전체)
-│   ├── stock/[ticker]/        # 종목 상세
-│   ├── watchlist/+page.svelte # 관심 종목
+│   ├── stock/[ticker]/        # 종목 상세 + 관심종목 추가 버튼
+│   ├── watchlist/+page.svelte # 관심 종목 (폴더별 관리)
 │   ├── calculator/+page.svelte# 세금 계산기
 │   ├── settings/+page.svelte  # 설정 (버전 표시)
 │   ├── notifications/         # 알림 설정
@@ -537,9 +538,10 @@ web/src/
 ├── lib/
 │   ├── components/            # 재사용 컴포넌트
 │   │   ├── Icons.svelte       # 아이콘 (Lucide)
+│   │   ├── BottomNav.svelte   # 하단 네비게이션 (6개: 홈/포폴/이력/스퀴즈/관심/설정)
 │   │   ├── RegSHOBadge.svelte # RegSHO 뱃지
-│   │   ├── RecommendationTabs.svelte # 추천 탭
-│   │   └── Navigation.svelte  # 하단 네비게이션
+│   │   ├── ProfileRecommendations.svelte # 맞춤 추천 + 관심종목 추가
+│   │   └── RecommendationModal.svelte # 추천 상세 모달 + 관심종목 추가
 │   ├── types.ts               # TypeScript 타입 정의
 │   └── api.ts                 # API 헬퍼 함수
 │

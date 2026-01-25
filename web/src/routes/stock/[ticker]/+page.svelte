@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import Icon from '$lib/components/Icons.svelte';
 
 	interface Candle {
 		time: number;
@@ -66,9 +67,55 @@
 		{ value: '1y', label: '1년' },
 	];
 
+	let isInWatchlist = $state(false);
+	let addingToWatchlist = $state(false);
+	let toastMessage = $state('');
+
 	onMount(async () => {
-		await loadChartData();
+		await Promise.all([loadChartData(), checkWatchlist()]);
 	});
+
+	async function checkWatchlist() {
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/`, { credentials: 'include' });
+			if (response.ok) {
+				const data = await response.json();
+				const tickers = data.items?.map((item: { ticker: string }) => item.ticker) || [];
+				isInWatchlist = tickers.includes(ticker);
+			}
+		} catch {
+			// 로그인 안 된 경우 무시
+		}
+	}
+
+	async function addToWatchlist() {
+		addingToWatchlist = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ ticker })
+			});
+
+			if (response.ok) {
+				isInWatchlist = true;
+				showToast(`${ticker} 관심종목에 추가됨`);
+			} else {
+				const data = await response.json();
+				showToast(data.detail || '추가 실패');
+			}
+		} catch {
+			showToast('네트워크 오류');
+		} finally {
+			addingToWatchlist = false;
+		}
+	}
+
+	function showToast(message: string) {
+		toastMessage = message;
+		setTimeout(() => { toastMessage = ''; }, 2000);
+	}
 
 	onDestroy(() => {
 		cleanupCharts();
@@ -276,6 +323,15 @@
 				{#if chartData}
 					<span class="current-price">{formatCurrency(chartData.current_price)}</span>
 				{/if}
+				<button
+					class="btn-star"
+					class:active={isInWatchlist}
+					onclick={addToWatchlist}
+					disabled={addingToWatchlist || isInWatchlist}
+					title={isInWatchlist ? '관심종목에 추가됨' : '관심종목 추가'}
+				>
+					<Icon name="star" size={18} />
+				</button>
 			</div>
 			{#if chartData?.company_name}
 				<span class="company-name">{chartData.company_name}</span>
@@ -338,6 +394,10 @@
 		</div>
 	{/if}
 </div>
+
+{#if toastMessage}
+	<div class="toast">{toastMessage}</div>
+{/if}
 
 <style>
 	.container {
@@ -539,5 +599,58 @@
 
 	.chart-container.small {
 		height: 100px;
+	}
+
+	.btn-star {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #8b949e;
+		cursor: pointer;
+		transition: all 0.15s;
+		margin-left: 0.5rem;
+	}
+
+	.btn-star:hover:not(:disabled) {
+		background: #30363d;
+		border-color: #58a6ff;
+		color: #58a6ff;
+	}
+
+	.btn-star.active {
+		background: #ffd700;
+		border-color: #ffd700;
+		color: #0d1117;
+	}
+
+	.btn-star:disabled {
+		cursor: not-allowed;
+	}
+
+	.toast {
+		position: fixed;
+		bottom: 5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #238636;
+		color: white;
+		padding: 0.75rem 1.25rem;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		z-index: 1100;
+		animation: fadeInOut 2s ease;
+	}
+
+	@keyframes fadeInOut {
+		0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+		15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+		85% { opacity: 1; transform: translateX(-50%) translateY(0); }
+		100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 	}
 </style>
