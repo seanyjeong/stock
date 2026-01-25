@@ -36,22 +36,74 @@ from deep_analyzer import (
 
 
 # ============================================================
-# 스퀴즈 후보 종목 리스트
+# 스퀴즈 후보 종목 스캔 (Finviz 스크리너)
 # ============================================================
 
-# RegSHO + 관심종목 + 핫 종목
-SQUEEZE_TICKERS = [
-    # 현재 핫한 종목
-    "GLSI", "BNAI", "GRRR", "DRUG", "KOSS",
-    # 바이오텍
-    "SAVA", "IMVT", "SRPT", "SGEN", "MRNA",
-    # 나노캡 숏스퀴즈 후보
-    "FFIE", "MULN", "NKLA", "GOEV", "WKHS",
-    # 밈주식
-    "GME", "AMC", "BBBY", "BB", "NOK",
-    # 기타
-    "SPCE", "CLOV", "WISH", "SOFI", "PLTR",
-]
+import requests
+from bs4 import BeautifulSoup
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
+
+
+def get_squeeze_candidates_from_finviz() -> list[str]:
+    """
+    Finviz 스크리너로 숏스퀴즈 후보 스캔 (finvizfinance 라이브러리)
+
+    조건:
+    - Short Float > 10%
+    - Market Cap < $2B (소형주)
+    - Average Volume > 100K (유동성)
+    """
+    tickers = []
+
+    try:
+        from finvizfinance.screener.overview import Overview
+
+        screener = Overview()
+
+        # 필터: Float Short > 10%, Small Cap 이하
+        filters_dict = {
+            'Market Cap.': '-Small (under $2bln)',
+            'Float Short': 'Over 10%',
+            'Average Volume': 'Over 100K',
+        }
+
+        screener.set_filter(filters_dict=filters_dict)
+        df = screener.screener_view()
+
+        if df is not None and not df.empty:
+            tickers = df['Ticker'].tolist()
+
+        print(f"  📊 Finviz 스크리너: {len(tickers)}개 후보 발견")
+
+    except Exception as e:
+        print(f"  ⚠️ Finviz 스크리너 실패: {e}")
+
+    return tickers[:100]  # 최대 100개
+
+
+def get_regsho_tickers() -> list[str]:
+    """RegSHO Threshold List에서 티커 가져오기"""
+    tickers = []
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        # 최근 7일 RegSHO 목록
+        cur.execute("""
+            SELECT DISTINCT ticker FROM regsho_threshold
+            WHERE collected_at > NOW() - INTERVAL '7 days'
+        """)
+        tickers = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        print(f"  📋 RegSHO: {len(tickers)}개")
+    except:
+        pass
+
+    return tickers
 
 
 def get_watchlist_tickers() -> list[str]:
@@ -63,9 +115,29 @@ def get_watchlist_tickers() -> list[str]:
         tickers = [row[0] for row in cur.fetchall()]
         cur.close()
         conn.close()
+        print(f"  ⭐ 관심종목: {len(tickers)}개")
         return tickers
     except:
         return []
+
+
+def get_high_si_from_yfinance(tickers_pool: list[str], min_si: float = 10.0) -> list[str]:
+    """yfinance로 SI 높은 종목 필터링 (빠른 1차 필터)"""
+    high_si = []
+
+    for ticker in tickers_pool:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            si = info.get('shortPercentOfFloat', 0) or 0
+            si_pct = si * 100 if si < 1 else si
+
+            if si_pct >= min_si:
+                high_si.append(ticker)
+        except:
+            pass
+
+    return high_si
 
 
 def collect_squeeze_data(ticker: str) -> dict | None:
@@ -203,18 +275,37 @@ def save_to_db(data_list: list[dict]):
 def main():
     parser = argparse.ArgumentParser(description="숏스퀴즈 데이터 수집기")
     parser.add_argument("--test", action="store_true", help="테스트 모드 (5개만)")
+    parser.add_argument("--quick", action="store_true", help="빠른 모드 (RegSHO + 관심종목만)")
     args = parser.parse_args()
 
     print("=" * 60)
-    print(f"🔥 숏스퀴즈 데이터 수집기")
+    print(f"🔥 숏스퀴즈 데이터 수집기 v2")
     print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
-    # 티커 수집
-    tickers = list(set(SQUEEZE_TICKERS + get_watchlist_tickers()))
+    # 티커 수집 (다중 소스)
+    print("\n📡 스퀴즈 후보 스캔 중...")
+
+    all_tickers = []
+
+    # 1. Finviz 스크리너 (SI > 10%, 소형주)
+    if not args.quick:
+        finviz_tickers = get_squeeze_candidates_from_finviz()
+        all_tickers.extend(finviz_tickers)
+
+    # 2. RegSHO Threshold (결제 실패 종목)
+    regsho_tickers = get_regsho_tickers()
+    all_tickers.extend(regsho_tickers)
+
+    # 3. 관심종목
+    watchlist_tickers = get_watchlist_tickers()
+    all_tickers.extend(watchlist_tickers)
+
+    # 중복 제거
+    tickers = list(set(all_tickers))
 
     if args.test:
-        tickers = tickers[:5]
+        tickers = tickers[:5] if tickers else ["GLSI", "BNAI", "GME", "AMC", "TSLA"]
         print(f"🧪 테스트 모드: {tickers}")
 
     print(f"\n📊 수집 대상: {len(tickers)}개 종목\n")
