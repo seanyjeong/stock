@@ -572,7 +572,10 @@ async def get_report_status(
         if not job:
             raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다")
 
-        return ReportStatusResponse(**job)
+        # UUID를 string으로 변환
+        job_dict = dict(job)
+        job_dict["job_id"] = str(job_dict["job_id"])
+        return ReportStatusResponse(**job_dict)
     finally:
         cur.close()
         conn.close()
@@ -628,7 +631,18 @@ async def get_report_history(
         """, (user["id"], limit))
         jobs = cur.fetchall()
 
-        return {"reports": [dict(j) for j in jobs]}
+        # UUID와 datetime 변환
+        result = []
+        for j in jobs:
+            job_dict = dict(j)
+            job_dict["job_id"] = str(job_dict["job_id"])
+            if job_dict.get("created_at"):
+                job_dict["created_at"] = job_dict["created_at"].isoformat()
+            if job_dict.get("completed_at"):
+                job_dict["completed_at"] = job_dict["completed_at"].isoformat()
+            result.append(job_dict)
+
+        return {"reports": result}
     finally:
         cur.close()
         conn.close()
