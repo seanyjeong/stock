@@ -386,6 +386,27 @@ def safe_get(d, key, default=None):
     return d.get(key, default) or default
 
 
+# 번역기 초기화
+try:
+    from deep_translator import GoogleTranslator
+    translator = GoogleTranslator(source='en', target='ko')
+except:
+    translator = None
+
+
+def translate_to_korean(text: str, max_len: int = 500) -> str:
+    """영어 텍스트를 한글로 번역"""
+    if not text or not translator:
+        return text
+    try:
+        # 길이 제한
+        text_short = text[:max_len] if len(text) > max_len else text
+        return translator.translate(text_short)
+    except Exception as e:
+        logger.warning(f"Translation failed: {e}")
+        return text
+
+
 def emoji_to_text(text: str) -> str:
     """이모지를 PDF 호환 텍스트로 변환"""
     replacements = {
@@ -597,16 +618,22 @@ def render_report_html(ticker: str, data: dict) -> str:
     ftd_total = safe_get(ftd, "total_ftd", 0) or 0
     ftd_max = safe_get(ftd, "max_ftd", 0) or 0
 
-    # AI 분석
+    # AI 분석 (dict 또는 string)
     ai_summary = ""
     ai_strengths = []
     ai_weaknesses = []
     ai_strategy = ""
-    if ai and isinstance(ai, dict):
-        ai_summary = safe_get(ai, "summary", "")
-        ai_strengths = ai.get("strengths", []) or []
-        ai_weaknesses = ai.get("weaknesses", []) or []
-        ai_strategy = safe_get(ai, "strategy", "")
+    ai_raw_text = ""  # 문자열 응답용
+
+    if ai:
+        if isinstance(ai, dict):
+            ai_summary = safe_get(ai, "summary", "")
+            ai_strengths = ai.get("strengths", []) or []
+            ai_weaknesses = ai.get("weaknesses", []) or []
+            ai_strategy = safe_get(ai, "strategy", "")
+        elif isinstance(ai, str) and len(ai) > 50:
+            # Gemini가 문자열로 응답한 경우 - 그대로 사용
+            ai_raw_text = ai
 
     # ========== HTML 구성 ==========
 
@@ -642,7 +669,7 @@ def render_report_html(ticker: str, data: dict) -> str:
 
         <h3>사업 내용 (뭘로 돈 버나?)</h3>
         <div class="business-desc">
-            {ai_summary if ai_summary else (description[:500] + "..." if len(description) > 500 else description)}
+            {translate_to_korean(description, 500) if description else "정보 없음"}
         </div>
     </section>
     <hr>
@@ -881,6 +908,8 @@ def render_report_html(ticker: str, data: dict) -> str:
         for n in all_news[:8]:
             if isinstance(n, dict):
                 title = n.get("title", "")
+                # 뉴스 제목 한글 번역
+                title_kr = translate_to_korean(title, 200) if title else title
                 date = n.get("date", n.get("published", n.get("providerPublishTime", "")))
                 # 날짜 포맷팅
                 if date:
@@ -893,9 +922,9 @@ def render_report_html(ticker: str, data: dict) -> str:
                     elif isinstance(date, str) and len(date) > 10:
                         date = date[:10]
                 date_str = f"<span class='news-date'>[{date}]</span> " if date else ""
-                html += f"<li>{date_str}{title}</li>"
+                html += f"<li>{date_str}{title_kr}</li>"
             else:
-                html += f"<li>{str(n)}</li>"
+                html += f"<li>{translate_to_korean(str(n), 200)}</li>"
         html += """
         </ul>
     </section>
@@ -913,9 +942,10 @@ def render_report_html(ticker: str, data: dict) -> str:
         total_inst_pct = 0
         for holder in inst_holders[:5]:
             if isinstance(holder, dict):
-                name = holder.get("name", holder.get("holder", "Unknown"))
-                shares = holder.get("shares", holder.get("position", 0))
-                pct = holder.get("pct", holder.get("pctHeld", 0))
+                # yfinance 키: Holder, Shares, pctHeld (대문자 주의)
+                name = holder.get("Holder", holder.get("holder", holder.get("name", "Unknown")))
+                shares = holder.get("Shares", holder.get("shares", holder.get("position", 0))) or 0
+                pct = holder.get("pctHeld", holder.get("pct", 0)) or 0
                 if pct and pct < 1:
                     pct = pct * 100
                 total_inst_pct += pct or 0
@@ -928,11 +958,12 @@ def render_report_html(ticker: str, data: dict) -> str:
 """
 
     # 12. AI 종합 분석
-    if ai_summary or ai_strengths or ai_weaknesses:
+    if ai_summary or ai_strengths or ai_weaknesses or ai_raw_text:
         html += """
     <section class="ai-section">
         <h2>AI 종합 분석 (Gemini)</h2>
 """
+        # 구조화된 응답이 있으면 사용
         if ai_summary:
             html += f"""
         <h3>핵심 요약</h3>
@@ -945,7 +976,7 @@ def render_report_html(ticker: str, data: dict) -> str:
         <ul class="strengths">
 """
             for s in ai_strengths[:5]:
-                html += f"<li>✅ {s}</li>"
+                html += f"<li>[OK] {s}</li>"
             html += "</ul>"
 
         if ai_strategy:
@@ -964,6 +995,22 @@ def render_report_html(ticker: str, data: dict) -> str:
             for i, w in enumerate(ai_weaknesses[:5], 1):
                 html += f"<li>{w}</li>"
             html += "</ol>"
+
+        # 문자열 응답이면 마크다운을 HTML로 변환하여 표시
+        if ai_raw_text and not ai_summary:
+            # 마크다운 -> HTML 간단 변환
+            ai_html = ai_raw_text
+            ai_html = ai_html.replace("## ", "<h3>").replace("\n### ", "</h3><h4>")
+            ai_html = ai_html.replace("### ", "<h4>").replace("\n## ", "</h4><h3>")
+            ai_html = ai_html.replace("**", "<strong>").replace("**", "</strong>")
+            ai_html = ai_html.replace("\n- ", "<br>• ")
+            ai_html = ai_html.replace("\n", "<br>")
+            # 길이 제한
+            if len(ai_html) > 3000:
+                ai_html = ai_html[:3000] + "..."
+            html += f"""
+        <div class="ai-raw">{ai_html}</div>
+"""
 
         html += """
     </section>
