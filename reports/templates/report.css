@@ -340,6 +340,27 @@ h3 {
     margin-bottom: 4px;
 }
 
+.news-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.news-list li {
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.news-list li:last-child {
+    border-bottom: none;
+}
+
+.news-date {
+    color: #666;
+    font-size: 8pt;
+    font-weight: 500;
+}
+
 /* FTD Info */
 .ftd-info {
     font-size: 9pt;

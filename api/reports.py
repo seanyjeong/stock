@@ -386,6 +386,35 @@ def safe_get(d, key, default=None):
     return d.get(key, default) or default
 
 
+def emoji_to_text(text: str) -> str:
+    """이모지를 PDF 호환 텍스트로 변환"""
+    replacements = {
+        '🔥': '[HOT]',
+        '⚠️': '[!]',
+        '✅': '[OK]',
+        '❌': '[X]',
+        '⭐': '*',
+        '☆': '-',
+        '😱': '(!)',
+        '🟢': '[+]',
+        '🟡': '[~]',
+        '🔴': '[-]',
+        '⚪': '[.]',
+        '📊': '',
+        '💰': '$',
+        '🎯': '[>]',
+        '📈': '[UP]',
+        '📉': '[DN]',
+        '🚨': '[!!]',
+        '⚡': '[*]',
+        '📄': '',
+        '❄️': '[COLD]',
+    }
+    for emoji, text_rep in replacements.items():
+        text = text.replace(emoji, text_rep)
+    return text
+
+
 def fmt_num(n, prefix=""):
     """숫자 포맷팅 (K, M, B 단위)"""
     if n is None:
@@ -613,7 +642,7 @@ def render_report_html(ticker: str, data: dict) -> str:
 
         <h3>사업 내용 (뭘로 돈 버나?)</h3>
         <div class="business-desc">
-            {description[:500]}{"..." if len(description) > 500 else ""}
+            {ai_summary if ai_summary else (description[:500] + "..." if len(description) > 500 else description)}
         </div>
     </section>
     <hr>
@@ -847,13 +876,28 @@ def render_report_html(ticker: str, data: dict) -> str:
         html += """
     <section class="news-section">
         <h2>최근 뉴스</h2>
-        <ol>
+        <ul class="news-list">
 """
         for n in all_news[:8]:
-            title = n.get("title", n) if isinstance(n, dict) else str(n)
-            html += f"<li>{title}</li>"
+            if isinstance(n, dict):
+                title = n.get("title", "")
+                date = n.get("date", n.get("published", n.get("providerPublishTime", "")))
+                # 날짜 포맷팅
+                if date:
+                    if isinstance(date, (int, float)):
+                        from datetime import datetime as dt
+                        try:
+                            date = dt.fromtimestamp(date).strftime("%Y-%m-%d")
+                        except:
+                            date = ""
+                    elif isinstance(date, str) and len(date) > 10:
+                        date = date[:10]
+                date_str = f"<span class='news-date'>[{date}]</span> " if date else ""
+                html += f"<li>{date_str}{title}</li>"
+            else:
+                html += f"<li>{str(n)}</li>"
         html += """
-        </ol>
+        </ul>
     </section>
     <hr>
 """
@@ -1013,7 +1057,8 @@ def render_report_html(ticker: str, data: dict) -> str:
 </html>
 """
 
-    return html
+    # 이모지를 PDF 호환 텍스트로 변환
+    return emoji_to_text(html)
 
 
 @router.post("/generate")
