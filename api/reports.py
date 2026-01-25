@@ -160,6 +160,24 @@ async def run_analysis(job_id: str, ticker: str, user_id: int, include_portfolio
         stock = yf.Ticker(ticker)
         basic_info = get_basic_info(ticker)
         result_data["basic_info"] = basic_info
+
+        # 가격 변화율 계산 (5일, 20일)
+        try:
+            hist = stock.history(period="1mo")
+            if len(hist) >= 20:
+                price_now = basic_info.get("price", 0) or hist['Close'].iloc[-1]
+                price_5d = hist['Close'].iloc[-5] if len(hist) >= 5 else price_now
+                price_20d = hist['Close'].iloc[-20] if len(hist) >= 20 else price_now
+                result_data["price_changes"] = {
+                    "change_5d": ((price_now / price_5d) - 1) * 100 if price_5d > 0 else 0,
+                    "change_20d": ((price_now / price_20d) - 1) * 100 if price_20d > 0 else 0
+                }
+            else:
+                result_data["price_changes"] = {"change_5d": 0, "change_20d": 0}
+        except Exception as e:
+            logger.warning(f"Price changes calculation failed: {e}")
+            result_data["price_changes"] = {"change_5d": 0, "change_20d": 0}
+
         await asyncio.sleep(0.1)  # 비동기 컨텍스트 유지
 
         # 2. 대차 데이터
@@ -272,6 +290,22 @@ async def run_analysis(job_id: str, ticker: str, user_id: int, include_portfolio
             result_data["events_8k"] = events_8k[:5] if events_8k else []
         await asyncio.sleep(0.1)
 
+        # 18.5 Short Interest 히스토리
+        try:
+            short_history = get_short_history(ticker)
+            result_data["short_history"] = short_history
+        except Exception as e:
+            logger.warning(f"Short history failed: {e}")
+            result_data["short_history"] = {}
+
+        # 18.6 기관 보유 데이터
+        try:
+            inst_holders = get_institutional_holders(stock)
+            result_data["institutional_holders"] = inst_holders[:10] if inst_holders else []
+        except Exception as e:
+            logger.warning(f"Institutional holders failed: {e}")
+            result_data["institutional_holders"] = []
+
         # 19. 스퀴즈 점수 계산
         update_job_progress(job_id, 88, "스퀴즈 점수 계산")
         squeeze_score = calculate_squeeze_score_v3(basic_info, borrow_data, in_regsho, technicals)
@@ -352,8 +386,59 @@ def safe_get(d, key, default=None):
     return d.get(key, default) or default
 
 
+def fmt_num(n, prefix=""):
+    """숫자 포맷팅 (K, M, B 단위)"""
+    if n is None:
+        return "N/A"
+    try:
+        n = float(n)
+        if abs(n) >= 1e12:
+            return f"{prefix}{n/1e12:.2f}T"
+        if abs(n) >= 1e9:
+            return f"{prefix}{n/1e9:.2f}B"
+        if abs(n) >= 1e6:
+            return f"{prefix}{n/1e6:.2f}M"
+        if abs(n) >= 1e3:
+            return f"{prefix}{n/1e3:.1f}K"
+        return f"{prefix}{n:,.0f}"
+    except:
+        return str(n)
+
+
+def get_market_cap_label(mc):
+    """시가총액 등급"""
+    if mc is None:
+        return ""
+    if mc < 50_000_000:  # 50M 이하
+        return "(나노캡)"
+    if mc < 300_000_000:  # 300M 이하
+        return "(마이크로캡)"
+    if mc < 2_000_000_000:  # 2B 이하
+        return "(스몰캡)"
+    if mc < 10_000_000_000:  # 10B 이하
+        return "(미드캡)"
+    return "(라지캡)"
+
+
+def translate_business_to_korean(description: str, sector: str, industry: str, ai_analysis: dict) -> str:
+    """사업 내용을 한글로 요약 (AI 분석 활용)"""
+    if not description:
+        return "정보 없음"
+
+    # AI 분석에서 한글 요약 추출
+    if ai_analysis and isinstance(ai_analysis, dict):
+        summary = ai_analysis.get("business_summary_kr") or ai_analysis.get("summary", "")
+        if summary and len(summary) > 20:
+            return summary[:500]
+
+    # 기본 영문 설명 (처음 300자)
+    return description[:300] + "..." if len(description) > 300 else description
+
+
 def render_report_html(ticker: str, data: dict) -> str:
-    """리포트 HTML 렌더링 - 달러농장 스타일"""
+    """리포트 HTML 렌더링 - daily/*.md 형식과 동일하게"""
+
+    # 데이터 추출 (안전하게)
     basic = data.get("basic_info") or {}
     borrow = data.get("borrow_data") or {}
     tech = data.get("technicals") or {}
@@ -364,10 +449,13 @@ def render_report_html(ticker: str, data: dict) -> str:
     sec_info = data.get("sec_info") or {}
     ftd = data.get("ftd_data") or {}
     news = data.get("news") or []
-    sentiment = data.get("sentiment") or {}
+    finviz_news = data.get("finviz_news") or []
     events_8k = data.get("events_8k") or []
+    inst_holders = data.get("institutional_holders") or []
+    short_history = data.get("short_history") or {}
+    price_changes = data.get("price_changes") or {}
 
-    # dict가 아닌 경우 빈 dict로 처리
+    # dict 타입 체크
     if not isinstance(basic, dict): basic = {}
     if not isinstance(borrow, dict): borrow = {}
     if not isinstance(tech, dict): tech = {}
@@ -376,268 +464,556 @@ def render_report_html(ticker: str, data: dict) -> str:
     if not isinstance(ai, dict): ai = {}
     if not isinstance(sec_info, dict): sec_info = {}
     if not isinstance(ftd, dict): ftd = {}
-    if not isinstance(sentiment, dict): sentiment = {}
+    if not isinstance(short_history, dict): short_history = {}
+    if not isinstance(price_changes, dict): price_changes = {}
+
+    # 기본 정보
+    name = safe_get(basic, "name", ticker)
+    sector = safe_get(basic, "sector", "N/A")
+    industry = safe_get(basic, "industry", "N/A")
+    employees = safe_get(basic, "employees", "N/A")
+    website = safe_get(basic, "website", "")
+    description = safe_get(basic, "description", "")
 
     # 가격 정보
-    price = safe_get(basic, "price", 0)
-    change_pct = safe_get(basic, "change_1d", 0)  # 1일 변화율
-    change_class = "positive" if change_pct >= 0 else "negative"
-    market_cap = safe_get(basic, "market_cap", 0)
-    float_shares = safe_get(basic, "float_shares", 0)
-    week_low = safe_get(basic, "52w_low", 0)  # 실제 키
-    week_high = safe_get(basic, "52w_high", 0)  # 실제 키
+    price = safe_get(basic, "price", 0) or 0
+    prev_close = safe_get(basic, "prev_close", price) or price
+    post_market = safe_get(basic, "post_market")
+    week_high = safe_get(basic, "52w_high", 0) or 0
+    week_low = safe_get(basic, "52w_low", 0) or 0
+    market_cap = safe_get(basic, "market_cap", 0) or 0
+    float_shares = safe_get(basic, "float_shares", 0) or 0
 
-    # 숏 데이터 (basic_info에서 가져오기)
-    short_pct = safe_get(basic, "short_pct_float", 0) or 0
-    short_shares = safe_get(basic, "shares_short", 0)
+    # 가격 변화율 계산
+    change_1d = ((price / prev_close) - 1) * 100 if prev_close > 0 else 0
+    change_5d = safe_get(price_changes, "change_5d", 0) or 0
+    change_20d = safe_get(price_changes, "change_20d", 0) or 0
+    post_change = ((post_market / price) - 1) * 100 if post_market and price > 0 else 0
+
+    # 재무 정보
+    revenue = safe_get(basic, "revenue", 0)
+    revenue_growth = safe_get(basic, "revenue_growth", 0)
+    net_income = safe_get(basic, "net_income", 0)
+    ebitda = safe_get(basic, "ebitda", 0)
+    eps = safe_get(basic, "eps", 0)
+    pe_ratio = safe_get(basic, "pe_ratio")
+    total_cash = safe_get(basic, "total_cash", 0)
+    total_debt = safe_get(basic, "total_debt", 0)
+    debt_to_equity = safe_get(basic, "debt_to_equity", 0)
+
+    # 숏 데이터
+    short_pct = (safe_get(basic, "short_pct_float", 0) or 0) * 100 if safe_get(basic, "short_pct_float", 0) else 0
+    if short_pct == 0:
+        short_pct = safe_get(borrow, "short_pct_float", 0) or 0
+    short_shares = safe_get(basic, "shares_short", 0) or 0
+    dtc = safe_get(borrow, "days_to_cover") or safe_get(basic, "short_ratio", 0) or 0
+    zero_borrow = safe_get(borrow, "is_zero_borrow", False)
     borrow_rate = safe_get(borrow, "borrow_rate", "N/A")
-    dtc = safe_get(borrow, "days_to_cover") or safe_get(basic, "short_ratio", "N/A")
-    zero_borrow = safe_get(borrow, "is_zero_borrow", False)  # 실제 키
     avail_shares = safe_get(borrow, "available_shares", 0)
+    short_change = safe_get(short_history, "change_30d", "N/A")
 
-    # 기술적
-    rsi = safe_get(tech, "rsi", 0)
-    macd_hist = safe_get(tech, "macd_hist", 0)  # 실제 키
-    bb_pct = safe_get(tech, "bb_position", 0)  # 실제 키
-    atr_pct = safe_get(tech, "atr_pct", 0)  # 실제 키
+    # 기술적 지표
+    rsi = safe_get(tech, "rsi", 0) or 0
+    macd_hist = safe_get(tech, "macd_hist", 0) or 0
+    bb_pct = safe_get(tech, "bb_position", 0) or 0
+    atr_pct = safe_get(tech, "atr_pct", 0) or 0
+
+    # RSI 해석
+    if rsi < 20:
+        rsi_text = "극단적 과매도!"
+        rsi_emoji = "🟢"
+    elif rsi < 30:
+        rsi_text = "과매도"
+        rsi_emoji = "🟢"
+    elif rsi > 80:
+        rsi_text = "극단적 과매수!"
+        rsi_emoji = "🔴"
+    elif rsi > 70:
+        rsi_text = "과매수"
+        rsi_emoji = "🔴"
+    else:
+        rsi_text = "중립"
+        rsi_emoji = "⚪"
 
     # 스퀴즈 점수
-    score = safe_get(squeeze, "score", 0)
-    # grade 계산 (score 기반)
+    score = safe_get(squeeze, "score", 0) or 0
+    details = safe_get(squeeze, "details", "") or ""
+    strengths = squeeze.get("strengths", []) or []
+    weaknesses = squeeze.get("weaknesses", []) or []
+
+    # 등급
     if score >= 60:
         grade = "HOT"
+        grade_emoji = "🔥🔥🔥"
     elif score >= 40:
         grade = "WATCH"
+        grade_emoji = "🔥🔥"
     else:
         grade = "COLD"
-    breakdown = safe_get(squeeze, "details", "")  # 실제 키
+        grade_emoji = "❄️"
 
     # 피보나치 레벨
     fib_levels = safe_get(fib, "levels", {})
     if not isinstance(fib_levels, dict): fib_levels = {}
+    current_fib_position = safe_get(fib, "current_position", "")
 
-    # SEC 리스크 (실제 키)
-    warrant_cnt = safe_get(sec_info, "warrant_mentions", 0)
-    dilution_cnt = safe_get(sec_info, "dilution_mentions", 0)
-    debt_cnt = safe_get(sec_info, "debt_mentions", 0)
-    offering_cnt = safe_get(sec_info, "offering_mentions", 0)
+    # SEC 리스크
+    warrant_cnt = safe_get(sec_info, "warrant_mentions", 0) or 0
+    dilution_cnt = safe_get(sec_info, "dilution_mentions", 0) or 0
+    debt_cnt = safe_get(sec_info, "debt_mentions", 0) or 0
+    covenant_cnt = safe_get(sec_info, "covenant_mentions", 0) or 0
+    offering_cnt = safe_get(sec_info, "offering_mentions", 0) or 0
 
     # FTD
-    ftd_total = safe_get(ftd, "total_ftd", 0)
-    ftd_max = safe_get(ftd, "max_ftd", 0)
+    ftd_total = safe_get(ftd, "total_ftd", 0) or 0
+    ftd_max = safe_get(ftd, "max_ftd", 0) or 0
 
-    # 보유 계산
-    holding_html = ""
-    if holding and isinstance(holding, dict):
-        shares = float(holding.get("shares", 0) or 0)
-        avg_cost = float(holding.get("avg_cost", 0) or 0)
-        if shares > 0 and avg_cost > 0:
-            total_cost = shares * avg_cost
-            current_value = shares * price
-            profit = current_value - total_cost
-            profit_pct = (profit / total_cost) * 100 if total_cost > 0 else 0
-            holding_html = f'''
-        <section class="portfolio-section">
-            <h2>보유 현황 계산</h2>
-            <table class="info-table">
-                <tr><td>보유 수량</td><td>{shares:,.0f}주</td></tr>
-                <tr><td>평균 매수가</td><td>${avg_cost:.2f}</td></tr>
-                <tr><td>매수 총액</td><td>${total_cost:,.0f}</td></tr>
-                <tr><td>현재 평가액</td><td>${current_value:,.0f}</td></tr>
-                <tr><td>수익/손실</td><td class="{("positive" if profit >= 0 else "negative")}">${profit:+,.0f} ({profit_pct:+.1f}%)</td></tr>
-            </table>
-        </section>
-            '''
-
-    # AI 분석 섹션
-    ai_html = ""
+    # AI 분석
+    ai_summary = ""
+    ai_strengths = []
+    ai_weaknesses = []
+    ai_strategy = ""
     if ai and isinstance(ai, dict):
         ai_summary = safe_get(ai, "summary", "")
         ai_strengths = ai.get("strengths", []) or []
         ai_weaknesses = ai.get("weaknesses", []) or []
         ai_strategy = safe_get(ai, "strategy", "")
-        if ai_summary or ai_strengths or ai_weaknesses:
-            strengths_html = "".join(f"<li>{s}</li>" for s in ai_strengths if s)
-            weaknesses_html = "".join(f"<li>{w}</li>" for w in ai_weaknesses if w)
-            ai_html = f'''
-        <section class="ai-section">
-            <h2>AI 종합 분석 (Gemini)</h2>
-            <div class="ai-summary">{ai_summary}</div>
-            {"<h3>강점</h3><ul class='strengths'>" + strengths_html + "</ul>" if strengths_html else ""}
-            {"<h3>약점/리스크</h3><ul class='weaknesses'>" + weaknesses_html + "</ul>" if weaknesses_html else ""}
-            {"<h3>투자 전략</h3><p class='strategy'>" + ai_strategy + "</p>" if ai_strategy else ""}
-        </section>
-            '''
 
-    # 뉴스 섹션
-    news_html = ""
-    if news and isinstance(news, list) and len(news) > 0:
-        news_items = "".join(f"<li>{n.get('title', n) if isinstance(n, dict) else n}</li>" for n in news[:5])
-        news_html = f'''
-        <section class="news-section">
-            <h2>최근 뉴스</h2>
-            <ul>{news_items}</ul>
-        </section>
-        '''
+    # ========== HTML 구성 ==========
 
-    # 8-K 이벤트
-    events_html = ""
-    if events_8k and isinstance(events_8k, list) and len(events_8k) > 0:
-        events_items = "".join(f"<li>{e.get('date', '')}: {e.get('type', e)}</li>" for e in events_8k[:5] if isinstance(e, dict))
-        if events_items:
-            events_html = f'''
-        <section class="events-section">
-            <h2>8-K 주요 공시</h2>
-            <ul>{events_items}</ul>
-        </section>
-            '''
-
-    # 피보나치 HTML
-    fib_html = ""
-    if fib_levels:
-        fib_rows = "".join(f'<tr><td>{k}</td><td>${v:.2f}</td></tr>' for k, v in fib_levels.items() if isinstance(v, (int, float)))
-        if fib_rows:
-            fib_html = f'''
-        <section class="fibonacci-section">
-            <h2>피보나치 레벨</h2>
-            <table class="fib-table">
-                <tr><th>레벨</th><th>가격</th></tr>
-                {fib_rows}
-            </table>
-        </section>
-            '''
-
-    # Zero Borrow 강조
-    zero_borrow_alert = ""
-    if zero_borrow:
-        zero_borrow_alert = '''
-        <div class="alert alert-hot">
-            ZERO BORROW! 빌릴 주식 = 0 → 새 숏 진입 불가, 기존 숏은 시장에서 사야 탈출!
-        </div>
-        '''
-
-    html = f"""
-<!DOCTYPE html>
+    # 1. 헤더
+    html = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>{ticker} 분석 리포트</title>
+    <title>{ticker} 데일리 리포트 - 달러농장</title>
 </head>
 <body>
-    <div class="report">
-        <header class="report-header">
-            <div class="logo">달러농장</div>
-            <div class="report-date">{datetime.now().strftime("%Y년 %m월 %d일")}</div>
-        </header>
+<div class="report">
+    <header class="report-header">
+        <div class="logo">달러농장</div>
+        <div class="report-date">{datetime.now().strftime("%Y년 %m월 %d일")}</div>
+    </header>
 
-        <h1 class="ticker-title">{ticker}</h1>
-        <p class="company-name">{safe_get(basic, "name", ticker)}</p>
-        <p class="analyzer-info">deep_analyzer v4 + Gemini AI</p>
+    <h1 class="ticker-title">{ticker} 데일리 리포트</h1>
+    <p class="analyzer-info">deep_analyzer v4 + Gemini AI</p>
+    <hr>
+"""
 
-        <section class="overview">
-            <h2>회사 개요</h2>
-            <table class="info-table">
-                <tr><td>섹터</td><td>{safe_get(basic, "sector", "N/A")}</td></tr>
-                <tr><td>업종</td><td>{safe_get(basic, "industry", "N/A")}</td></tr>
-                <tr><td>직원수</td><td>{safe_get(basic, "employees", "N/A")}</td></tr>
-            </table>
-            <p class="business-desc">{safe_get(basic, "description", "")[:300]}...</p>
-        </section>
+    # 2. 회사 개요
+    html += f"""
+    <section>
+        <h2>회사 개요</h2>
+        <table class="info-table">
+            <tr><td>회사명</td><td>{name}</td></tr>
+            <tr><td>섹터</td><td>{sector} / {industry}</td></tr>
+            <tr><td>직원수</td><td>{employees}명</td></tr>
+            {"<tr><td>웹사이트</td><td>" + website + "</td></tr>" if website else ""}
+        </table>
 
-        <section class="price-section">
-            <h2>가격 정보</h2>
-            <div class="price-box">
-                <span class="current-price">${price:.2f}</span>
-                <span class="change {change_class}">{change_pct:+.2f}%</span>
-            </div>
-            <table class="info-table">
-                <tr><td>52주 범위</td><td>${week_low:.2f} ~ ${week_high:.2f}</td></tr>
-                <tr><td>시가총액</td><td>{format_number(market_cap)}</td></tr>
-                <tr><td>Float</td><td>{format_number(float_shares)}</td></tr>
-            </table>
-        </section>
+        <h3>사업 내용 (뭘로 돈 버나?)</h3>
+        <div class="business-desc">
+            {description[:500]}{"..." if len(description) > 500 else ""}
+        </div>
+    </section>
+    <hr>
+"""
 
-        {holding_html}
+    # 3. 가격 정보
+    mc_label = get_market_cap_label(market_cap)
+    price_class = "positive" if change_1d >= 0 else "negative"
 
-        <section class="short-section">
-            <h2>숏 포지션 분석</h2>
-            {zero_borrow_alert}
-            <table class="info-table">
-                <tr><td>Short % of Float</td><td class="highlight">{short_pct:.2f}%</td></tr>
-                <tr><td>Short Shares</td><td>{format_number(short_shares)}</td></tr>
-                <tr><td>Days to Cover</td><td>{dtc}</td></tr>
-                <tr><td>Zero Borrow</td><td class="{"hot" if zero_borrow else ""}">{"YES!" if zero_borrow else "No"}</td></tr>
-                <tr><td>Borrow Rate</td><td>{borrow_rate}</td></tr>
-                <tr><td>대차가능 주식</td><td>{format_number(avail_shares)}</td></tr>
-                <tr><td>RegSHO</td><td>{"등재" if data.get("in_regsho") else "미등재"}</td></tr>
-            </table>
-            {"<p class='ftd-info'>FTD: " + format_number(ftd_total) + " (최대: " + format_number(ftd_max) + ")</p>" if ftd_total else ""}
-        </section>
+    html += f"""
+    <section>
+        <h2>가격 정보</h2>
+        <table class="info-table">
+            <tr><td>현재가</td><td class="{price_class}"><strong>${price:.2f}</strong> ({change_1d:+.2f}%)</td></tr>
+            {"<tr><td>애프터마켓</td><td>$" + f"{post_market:.2f} ({post_change:+.2f}%)</td></tr>" if post_market else ""}
+            <tr><td>52주 범위</td><td>${week_low:.2f} ~ ${week_high:.2f}</td></tr>
+            <tr><td>시가총액</td><td><strong>{fmt_num(market_cap, "$")}</strong> {mc_label}</td></tr>
+            <tr><td>Float</td><td>{fmt_num(float_shares)}</td></tr>
+        </table>
 
-        <section class="technical-section">
-            <h2>기술적 분석</h2>
-            <table class="info-table">
-                <tr><td>RSI (14)</td><td class="{"overbought" if rsi > 70 else "oversold" if rsi < 30 else ""}">{rsi:.1f} {"과매수!" if rsi > 70 else "과매도" if rsi < 30 else ""}</td></tr>
-                <tr><td>MACD Histogram</td><td>{macd_hist:.4f}</td></tr>
-                <tr><td>볼린저 위치</td><td>{bb_pct:.1f}%</td></tr>
-                <tr><td>변동성 (ATR%)</td><td>{atr_pct:.2f}%</td></tr>
-            </table>
-        </section>
+        <h3>가격 변화</h3>
+        <table class="info-table">
+            <tr><td>1일</td><td class="{price_class}">{change_1d:+.2f}%</td></tr>
+            <tr><td>5일</td><td class="{"positive" if change_5d >= 0 else "negative"}">{change_5d:+.2f}%</td></tr>
+            <tr><td>20일</td><td class="{"positive" if change_20d >= 0 else "negative"}">{change_20d:+.2f}% {"😱" if abs(change_20d) > 50 else ""}</td></tr>
+        </table>
+        {"<p class='alert alert-warn'>⚠️ 20일 동안 " + f"{abs(change_20d):.0f}% {'폭락' if change_20d < 0 else '폭등'}!</p>" if abs(change_20d) > 50 else ""}
+    </section>
+    <hr>
+"""
 
-        {fib_html}
+    # 4. 재무 현황
+    revenue_growth_pct = (revenue_growth * 100) if revenue_growth and revenue_growth < 10 else revenue_growth
+    html += f"""
+    <section>
+        <h2>재무 현황</h2>
+        <table class="info-table">
+            <tr><td>매출 (TTM)</td><td>{fmt_num(revenue, "$")}</td></tr>
+            <tr><td>매출 성장률</td><td class="{"positive" if revenue_growth_pct and revenue_growth_pct > 0 else "negative"}">{f"{revenue_growth_pct:+.1f}%" if revenue_growth_pct else "N/A"} {"좋음!" if revenue_growth_pct and revenue_growth_pct > 20 else ""}</td></tr>
+            <tr><td>순이익</td><td class="{"positive" if net_income and net_income > 0 else "negative"}">{fmt_num(net_income, "$")} {"적자" if net_income and net_income < 0 else ""}</td></tr>
+            <tr><td>EBITDA</td><td>{fmt_num(ebitda, "$")}</td></tr>
+            <tr><td>EPS</td><td>{f"${eps:.2f}" if isinstance(eps, (int, float)) else "N/A"}</td></tr>
+            <tr><td>P/E</td><td>{f"{pe_ratio:.1f}" if pe_ratio else "N/A (적자 기업)"}</td></tr>
+        </table>
 
-        <section class="squeeze-section">
-            <h2>숏스퀴즈 점수</h2>
-            <div class="score-box">
-                <span class="score">{score:.0f}</span>
-                <span class="grade grade-{grade.lower() if grade else 'na'}">/100 {grade}</span>
-            </div>
-            <p class="score-breakdown">{breakdown}</p>
-        </section>
+        <h3>재무 건전성</h3>
+        <table class="info-table">
+            <tr><td>현금</td><td>{fmt_num(total_cash, "$")}</td></tr>
+            <tr><td>부채</td><td>{fmt_num(total_debt, "$")}</td></tr>
+            <tr><td>부채비율 (D/E)</td><td>{f"{debt_to_equity:.1f}%" if debt_to_equity else "N/A"}</td></tr>
+        </table>
+        {"<p class='positive'>✅ 현금이 부채보다 많음 (재무 건전)</p>" if total_cash and total_debt and total_cash > total_debt else ""}
+        {"<p class='negative'>⚠️ 부채가 현금보다 많음 (주의)</p>" if total_cash and total_debt and total_debt > total_cash else ""}
+    </section>
+    <hr>
+"""
 
-        <section class="sec-section">
-            <h2>SEC 공시 리스크</h2>
-            <table class="info-table">
-                <tr><td>Warrant</td><td>{warrant_cnt}건 {"⚠️" if warrant_cnt > 50 else ""}</td></tr>
-                <tr><td>Dilution</td><td>{dilution_cnt}건 {"⚠️" if dilution_cnt > 50 else ""}</td></tr>
-                <tr><td>Debt</td><td>{debt_cnt}건</td></tr>
-                <tr><td>S-3/424B (오퍼링)</td><td>{offering_cnt}건 {"✅ 낮음" if offering_cnt == 0 else "⚠️"}</td></tr>
-            </table>
-        </section>
+    # 5. 숏 포지션 분석
+    zero_borrow_alert = ""
+    if zero_borrow:
+        zero_borrow_alert = """
+        <div class="alert alert-hot">
+            <h3>🔥🔥🔥 ZERO BORROW! 🔥🔥🔥</h3>
+            <p>🚨 빌릴 주식 없음!<br>
+            → 새로운 숏 포지션 진입 불가능<br>
+            → 기존 숏은 시장에서 사야만 탈출 가능</p>
+        </div>
+        """
 
-        {events_html}
-        {news_html}
-        {ai_html}
+    html += f"""
+    <section>
+        <h2>숏 포지션 분석</h2>
+        {zero_borrow_alert}
+        <table class="info-table">
+            <tr><td>Short % of Float</td><td>{short_pct:.2f}%</td></tr>
+            <tr><td>Short Shares</td><td>{fmt_num(short_shares)}</td></tr>
+            <tr><td>Days to Cover</td><td>{dtc:.2f}일</td></tr>
+            <tr><td>Short 변화</td><td>{short_change}</td></tr>
+            <tr><td><strong>Zero Borrow</strong></td><td class="{"hot" if zero_borrow else ""}"><strong>{"✅ YES!" if zero_borrow else "No"}</strong> {"🔥" if zero_borrow else ""}</td></tr>
+            <tr><td>Borrow Rate</td><td>{borrow_rate}</td></tr>
+            <tr><td>대차가능 주식</td><td><strong>{fmt_num(avail_shares)}</strong></td></tr>
+            <tr><td>RegSHO</td><td>{"🔴 등재" if data.get("in_regsho") else "미등재"}</td></tr>
+        </table>
+"""
 
-        <section class="conclusion">
-            <h2>결론</h2>
-            <div class="rating-box">
-                <span>숏스퀴즈 점수: <strong>{score:.0f}/100</strong></span>
-            </div>
-        </section>
+    # FTD
+    if ftd_total > 0:
+        html += f"""
+        <h3>FTD (Failure to Deliver)</h3>
+        <ul>
+            <li>총 FTD: <strong>{fmt_num(ftd_total)}주</strong></li>
+            <li>최대 FTD: {fmt_num(ftd_max)}주</li>
+            {"<li>🔥 유의미한 FTD 감지! (10만주+)</li>" if ftd_max > 100000 else ""}
+        </ul>
+"""
+    html += """
+    </section>
+    <hr>
+"""
 
-        <footer class="report-footer">
-            <p>본 리포트는 투자 참고 자료이며, 투자 결정은 본인 책임입니다.</p>
-            <p>달러농장 &copy; {datetime.now().year}</p>
-        </footer>
-    </div>
+    # 6. 기술적 분석
+    html += f"""
+    <section>
+        <h2>기술적 분석</h2>
+        <table class="info-table">
+            <tr><td>RSI(14)</td><td><strong>{rsi:.2f}</strong> {rsi_emoji} <strong>{rsi_text}</strong></td></tr>
+            <tr><td>MACD Histogram</td><td>{macd_hist:.4f} {"상승 전환" if macd_hist > 0 else "하락"}</td></tr>
+            <tr><td>볼린저 위치</td><td>{bb_pct:.1f}% {"하단" if bb_pct < 30 else "상단" if bb_pct > 70 else "중간"}</td></tr>
+            <tr><td>변동성(ATR%)</td><td><strong>{atr_pct:.2f}%</strong> {"극단적!" if atr_pct > 20 else ""}</td></tr>
+        </table>
+        {"<p class='oversold'>⚠️ RSI " + f"{rsi:.0f} = {rsi_text} → 반등 가능성</p>" if rsi < 30 else ""}
+        {"<p class='overbought'>⚠️ RSI " + f"{rsi:.0f} = {rsi_text} → 조정 가능성</p>" if rsi > 70 else ""}
+    </section>
+    <hr>
+"""
+
+    # 7. 피보나치 레벨
+    if fib_levels:
+        fib_rows = ""
+        for level, price_val in sorted(fib_levels.items(), key=lambda x: float(x[0].replace('%', '')) if '%' in str(x[0]) else 0, reverse=True):
+            if isinstance(price_val, (int, float)):
+                fib_rows += f"<tr><td>{level}</td><td>${price_val:.2f}</td><td></td></tr>"
+
+        html += f"""
+    <section>
+        <h2>피보나치 레벨</h2>
+        <table class="fib-table">
+            <tr><th>레벨</th><th>가격</th><th>비고</th></tr>
+            {fib_rows}
+        </table>
+        {"<p><strong>현재 위치</strong>: " + current_fib_position + "</p>" if current_fib_position else ""}
+    </section>
+    <hr>
+"""
+
+    # 8. 숏스퀴즈 점수
+    # 프로그레스바 생성
+    filled = int(score / 5)  # 20칸 중 몇 개 채울지
+    bar = "█" * filled + "░" * (20 - filled)
+
+    html += f"""
+    <section>
+        <h2>숏스퀴즈 점수</h2>
+        <div class="score-box">
+            <span class="score-bar">[{bar}]</span>
+            <span class="score">{score:.0f}/100</span>
+            <span class="grade grade-{grade.lower()}">{grade_emoji} {grade}</span>
+        </div>
+"""
+
+    # 점수 구성
+    if details:
+        if isinstance(details, list):
+            details_html = "<ul>" + "".join(f"<li>{d}</li>" for d in details) + "</ul>"
+        else:
+            details_html = f"<p>{details}</p>"
+        html += f"""
+        <h3>점수 구성</h3>
+        <div class="score-breakdown">{details_html}</div>
+"""
+
+    # 강세/리스크 요인
+    if strengths or weaknesses:
+        html += """
+        <div class="factors">
+"""
+        if strengths:
+            html += """
+            <h3>강세 요인</h3>
+            <ul class="strengths">
+"""
+            for s in strengths[:5]:
+                html += f"<li>✅ {s}</li>"
+            html += "</ul>"
+
+        if weaknesses:
+            html += """
+            <h3>리스크 요인</h3>
+            <ul class="weaknesses">
+"""
+            for w in weaknesses[:5]:
+                html += f"<li>🟡 {w}</li>"
+            html += "</ul>"
+        html += "</div>"
+
+    html += """
+    </section>
+    <hr>
+"""
+
+    # 9. SEC 공시 리스크
+    html += f"""
+    <section>
+        <h2>SEC 공시 리스크</h2>
+        <table class="info-table">
+            <tr><td>Warrant</td><td>{warrant_cnt}건 {"⚠️ 희석 가능성" if warrant_cnt > 50 else ""}</td></tr>
+            <tr><td>Dilution</td><td>{dilution_cnt}건 {"⚠️ 높음" if dilution_cnt > 50 else ""}</td></tr>
+            <tr><td>Debt</td><td>{debt_cnt}건</td></tr>
+            <tr><td>Covenant</td><td>{covenant_cnt}건</td></tr>
+            <tr><td>S-3/424B</td><td>{offering_cnt}건 {"✅ 오퍼링 리스크 낮음" if offering_cnt == 0 else "⚠️"}</td></tr>
+        </table>
+"""
+
+    # 8-K 이벤트
+    if events_8k and isinstance(events_8k, list) and len(events_8k) > 0:
+        html += """
+        <h3>8-K 주요 공시</h3>
+        <ul>
+"""
+        for e in events_8k[:5]:
+            if isinstance(e, dict):
+                date = e.get("date", "")
+                etype = e.get("type", "")
+                emoji = "⚡" if "계약" in etype or "파트너" in etype else "⚠️" if "유증" in etype or "공모" in etype else "📄"
+                html += f"<li>{emoji} {date}: {etype}</li>"
+        html += "</ul>"
+
+    html += """
+    </section>
+    <hr>
+"""
+
+    # 10. 최근 뉴스
+    all_news = []
+    if news and isinstance(news, list):
+        all_news.extend(news[:5])
+    if finviz_news and isinstance(finviz_news, list):
+        all_news.extend(finviz_news[:3])
+
+    if all_news:
+        html += """
+    <section class="news-section">
+        <h2>최근 뉴스</h2>
+        <ol>
+"""
+        for n in all_news[:8]:
+            title = n.get("title", n) if isinstance(n, dict) else str(n)
+            html += f"<li>{title}</li>"
+        html += """
+        </ol>
+    </section>
+    <hr>
+"""
+
+    # 11. 기관 보유
+    if inst_holders and isinstance(inst_holders, list) and len(inst_holders) > 0:
+        html += """
+    <section>
+        <h2>기관 보유</h2>
+        <table class="info-table">
+            <tr><th>기관</th><th>보유량</th><th>비율</th></tr>
+"""
+        total_inst_pct = 0
+        for holder in inst_holders[:5]:
+            if isinstance(holder, dict):
+                name = holder.get("name", holder.get("holder", "Unknown"))
+                shares = holder.get("shares", holder.get("position", 0))
+                pct = holder.get("pct", holder.get("pctHeld", 0))
+                if pct and pct < 1:
+                    pct = pct * 100
+                total_inst_pct += pct or 0
+                html += f"<tr><td>{name}</td><td>{fmt_num(shares)}주</td><td>{pct:.2f}%</td></tr>"
+        html += f"""
+        </table>
+        <p><strong>총 기관 보유 비율</strong>: {total_inst_pct:.1f}% {"- 매우 낮음" if total_inst_pct < 10 else ""}</p>
+    </section>
+    <hr>
+"""
+
+    # 12. AI 종합 분석
+    if ai_summary or ai_strengths or ai_weaknesses:
+        html += """
+    <section class="ai-section">
+        <h2>AI 종합 분석 (Gemini)</h2>
+"""
+        if ai_summary:
+            html += f"""
+        <h3>핵심 요약</h3>
+        <div class="ai-summary">{ai_summary}</div>
+"""
+
+        if ai_strengths:
+            html += """
+        <h3>수급 상황</h3>
+        <ul class="strengths">
+"""
+            for s in ai_strengths[:5]:
+                html += f"<li>✅ {s}</li>"
+            html += "</ul>"
+
+        if ai_strategy:
+            html += f"""
+        <h3>투자 전략</h3>
+        <table class="info-table">
+            <tr><td>제안</td><td>{ai_strategy}</td></tr>
+        </table>
+"""
+
+        if ai_weaknesses:
+            html += """
+        <h3>주의사항</h3>
+        <ol>
+"""
+            for i, w in enumerate(ai_weaknesses[:5], 1):
+                html += f"<li>{w}</li>"
+            html += "</ol>"
+
+        html += """
+    </section>
+    <hr>
+"""
+
+    # 13. 보유 현황 (있으면)
+    if holding and isinstance(holding, dict):
+        h_shares = float(holding.get("shares", 0) or 0)
+        h_avg_cost = float(holding.get("avg_cost", 0) or 0)
+        if h_shares > 0 and h_avg_cost > 0:
+            total_cost = h_shares * h_avg_cost
+            current_value = h_shares * price
+            profit = current_value - total_cost
+            profit_pct = (profit / total_cost) * 100 if total_cost > 0 else 0
+
+            html += f"""
+    <section class="portfolio-section">
+        <h2>📊 내 보유 현황</h2>
+        <table class="info-table">
+            <tr><td>보유 수량</td><td>{h_shares:,.0f}주</td></tr>
+            <tr><td>평균 매수가</td><td>${h_avg_cost:.2f}</td></tr>
+            <tr><td>매수 총액</td><td>${total_cost:,.0f}</td></tr>
+            <tr><td>현재 평가액</td><td>${current_value:,.0f}</td></tr>
+            <tr><td>수익/손실</td><td class="{"positive" if profit >= 0 else "negative"}"><strong>${profit:+,.0f} ({profit_pct:+.1f}%)</strong></td></tr>
+        </table>
+    </section>
+    <hr>
+"""
+
+    # 14. 결론
+    # 등급 계산
+    squeeze_stars = 4 if score >= 60 else 3 if score >= 40 else 2
+    daytrading_stars = 3 if atr_pct > 10 else 2
+    swing_stars = 3 if score >= 40 and rsi < 40 else 2
+    longterm_stars = 1 if market_cap < 100_000_000 else 2
+
+    def stars(n):
+        return "⭐" * n + "☆" * (5 - n)
+
+    total_stars = (squeeze_stars + daytrading_stars + swing_stars) // 3
+
+    html += f"""
+    <section class="conclusion">
+        <h2>결론</h2>
+        <table class="info-table">
+            <tr><td>숏스퀴즈</td><td>{stars(squeeze_stars)} <strong>{"Zero Borrow!" if zero_borrow else ""}</strong></td></tr>
+            <tr><td>단타 적합</td><td>{stars(daytrading_stars)} {"변동성 극심" if atr_pct > 20 else ""}</td></tr>
+            <tr><td>스윙 적합</td><td>{stars(swing_stars)}</td></tr>
+            <tr><td>장기 투자</td><td>{stars(longterm_stars)} {mc_label}</td></tr>
+        </table>
+
+        <div class="rating-box">
+            <p><strong>최종 등급</strong>: {stars(total_stars)} ({total_stars}점 만점 중 {total_stars}점)</p>
+        </div>
+
+        <div class="key-points">
+            <h3>핵심 포인트</h3>
+            <ul>
+"""
+
+    # 핵심 포인트 자동 생성
+    if zero_borrow:
+        html += "<li>✅ Zero Borrow = 숏 진입 불가, 스퀴즈 조건</li>"
+    if rsi < 30:
+        html += f"<li>✅ RSI {rsi:.0f} = 과매도, 반등 가능</li>"
+    if rsi > 70:
+        html += f"<li>⚠️ RSI {rsi:.0f} = 과매수, 조정 주의</li>"
+    if abs(change_20d) > 50:
+        html += f"<li>⚠️ 20일 {change_20d:+.0f}% = {'폭락' if change_20d < 0 else '폭등'} 중</li>"
+    if market_cap < 50_000_000:
+        html += f"<li>⚠️ 시총 {fmt_num(market_cap, '$')} = 나노캡, 극변동성</li>"
+    if score >= 60:
+        html += f"<li>🎯 스퀴즈 점수 {score:.0f}/100 = HOT!</li>"
+
+    html += """
+            </ul>
+        </div>
+    </section>
+    <hr>
+"""
+
+    # 15. 푸터
+    html += f"""
+    <footer class="report-footer">
+        <p><em>이 리포트는 투자 참고용이며, 투자 결정은 본인 책임입니다.</em></p>
+        <p>달러농장 &copy; {datetime.now().year}</p>
+    </footer>
+</div>
 </body>
 </html>
 """
+
     return html
-
-
-def format_number(n):
-    """숫자 포맷팅"""
-    if n is None:
-        return "N/A"
-    if abs(n) >= 1e12:
-        return f"${n/1e12:.2f}T"
-    if abs(n) >= 1e9:
-        return f"${n/1e9:.2f}B"
-    if abs(n) >= 1e6:
-        return f"${n/1e6:.2f}M"
-    return f"${n:,.0f}"
 
 
 @router.post("/generate")
