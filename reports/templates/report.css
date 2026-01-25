@@ -511,6 +511,41 @@ ul li {
     border-bottom: 2px solid #e5e7eb;
 }
 
+/* SVG Icons */
+.icon, .star {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 2px;
+}
+
+.star.filled path {
+    fill: #f59e0b;
+}
+
+.star.empty path {
+    fill: #d1d5db;
+}
+
+.icon.fire path {
+    fill: #dc2626;
+}
+
+.icon.warning path {
+    fill: #f59e0b;
+}
+
+.icon.check path {
+    fill: #16a34a;
+}
+
+.icon.x path {
+    fill: #dc2626;
+}
+
+.icon.cold path {
+    fill: #3b82f6;
+}
+
 /* Positive/Negative text colors */
 .positive {
     color: #16a34a !important;

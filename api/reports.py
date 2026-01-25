@@ -407,27 +407,71 @@ def translate_to_korean(text: str, max_len: int = 500) -> str:
         return text
 
 
+# SVG 아이콘 정의
+SVG_ICONS = {
+    'fire': '<svg class="icon fire" viewBox="0 0 24 24" width="14" height="14"><path fill="#dc2626" d="M12 23c-3.9 0-7-3.1-7-7 0-2.1.7-3.9 2-5.7.7-1 1.5-1.8 2.3-2.6.8-.8 1.5-1.5 2-2.4.4-.7.7-1.5.7-2.3 0-.2.1-.4.3-.5.2-.1.4-.1.5 0 1.9 1.3 3.3 2.9 4.2 4.6.8 1.6 1.2 3.2 1 4.8-.1.8-.3 1.5-.6 2.2 0 .1 0 .1.1.1.3-.2.7-.5 1-.9.3-.5.5-1 .5-1.6 0-.1.1-.3.2-.3.1-.1.3-.1.4 0 .7.6 1.2 1.4 1.6 2.3.4 1 .6 2 .6 3 0 3.9-3.1 7-7 7z"/></svg>',
+    'warning': '<svg class="icon warning" viewBox="0 0 24 24" width="14" height="14"><path fill="#f59e0b" d="M12 2L1 21h22L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>',
+    'check': '<svg class="icon check" viewBox="0 0 24 24" width="14" height="14"><path fill="#16a34a" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>',
+    'x': '<svg class="icon x" viewBox="0 0 24 24" width="14" height="14"><path fill="#dc2626" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>',
+    'cold': '<svg class="icon cold" viewBox="0 0 24 24" width="14" height="14"><path fill="#3b82f6" d="M12 2a2 2 0 0 1 2 2v8a4 4 0 1 1-4 0V4a2 2 0 0 1 2-2z"/></svg>',
+}
+
+def get_icon(name: str) -> str:
+    """SVG 아이콘 반환"""
+    return SVG_ICONS.get(name, '')
+
+
+def emoji_to_svg(text: str) -> str:
+    """이모지를 SVG 아이콘으로 변환"""
+    replacements = {
+        '🔥': SVG_ICONS['fire'],
+        '⚠️': SVG_ICONS['warning'],
+        '✅': SVG_ICONS['check'],
+        '❌': SVG_ICONS['x'],
+        '❄️': SVG_ICONS['cold'],
+        '😱': SVG_ICONS['warning'],
+        '🟢': SVG_ICONS['check'],
+        '🟡': SVG_ICONS['warning'],
+        '🔴': SVG_ICONS['x'],
+        '🚨': SVG_ICONS['warning'],
+        '⚡': SVG_ICONS['fire'],
+        # 텍스트로 대체
+        '⭐': '',  # 별은 stars_svg 함수로 처리
+        '☆': '',
+        '⚪': '',
+        '📊': '',
+        '💰': '$',
+        '🎯': '',
+        '📈': '',
+        '📉': '',
+        '📄': '',
+    }
+    for emoji, svg in replacements.items():
+        text = text.replace(emoji, svg)
+    return text
+
+
 def emoji_to_text(text: str) -> str:
-    """이모지를 PDF 호환 텍스트로 변환"""
+    """이모지를 텍스트로 변환 (fallback)"""
     replacements = {
         '🔥': '[HOT]',
         '⚠️': '[!]',
         '✅': '[OK]',
         '❌': '[X]',
         '⭐': '*',
-        '☆': '-',
-        '😱': '(!)',
+        '☆': '',
+        '😱': '[!]',
         '🟢': '[+]',
         '🟡': '[~]',
         '🔴': '[-]',
-        '⚪': '[.]',
+        '⚪': '',
         '📊': '',
         '💰': '$',
-        '🎯': '[>]',
-        '📈': '[UP]',
-        '📉': '[DN]',
-        '🚨': '[!!]',
-        '⚡': '[*]',
+        '🎯': '',
+        '📈': '',
+        '📉': '',
+        '🚨': '[!]',
+        '⚡': '*',
         '📄': '',
         '❄️': '[COLD]',
     }
@@ -1048,8 +1092,12 @@ def render_report_html(ticker: str, data: dict) -> str:
     swing_stars = 3 if score >= 40 and rsi < 40 else 2
     longterm_stars = 1 if market_cap < 100_000_000 else 2
 
-    def stars(n):
-        return "⭐" * n + "☆" * (5 - n)
+    # SVG 별 아이콘
+    star_filled = '<svg class="star filled" viewBox="0 0 24 24" width="14" height="14"><path fill="#f59e0b" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+    star_empty = '<svg class="star empty" viewBox="0 0 24 24" width="14" height="14"><path fill="#d1d5db" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+
+    def stars_svg(n, max_stars=5):
+        return (star_filled * n) + (star_empty * (max_stars - n))
 
     total_stars = (squeeze_stars + daytrading_stars + swing_stars) // 3
 
@@ -1057,14 +1105,14 @@ def render_report_html(ticker: str, data: dict) -> str:
     <section class="conclusion">
         <h2>결론</h2>
         <table class="info-table">
-            <tr><td>숏스퀴즈</td><td>{stars(squeeze_stars)} <strong>{"Zero Borrow!" if zero_borrow else ""}</strong></td></tr>
-            <tr><td>단타 적합</td><td>{stars(daytrading_stars)} {"변동성 극심" if atr_pct > 20 else ""}</td></tr>
-            <tr><td>스윙 적합</td><td>{stars(swing_stars)}</td></tr>
-            <tr><td>장기 투자</td><td>{stars(longterm_stars)} {mc_label}</td></tr>
+            <tr><td>숏스퀴즈</td><td>{stars_svg(squeeze_stars)} <strong>{"Zero Borrow!" if zero_borrow else ""}</strong></td></tr>
+            <tr><td>단타 적합</td><td>{stars_svg(daytrading_stars)} {"변동성 극심" if atr_pct > 20 else ""}</td></tr>
+            <tr><td>스윙 적합</td><td>{stars_svg(swing_stars)}</td></tr>
+            <tr><td>장기 투자</td><td>{stars_svg(longterm_stars)} {mc_label}</td></tr>
         </table>
 
         <div class="rating-box">
-            <p><strong>최종 등급</strong>: {stars(total_stars)} ({total_stars}점 만점 중 {total_stars}점)</p>
+            <p><strong>최종 등급</strong>: {stars_svg(total_stars)} (5점 만점 중 {total_stars}점)</p>
         </div>
 
         <div class="key-points">
@@ -1104,8 +1152,8 @@ def render_report_html(ticker: str, data: dict) -> str:
 </html>
 """
 
-    # 이모지를 PDF 호환 텍스트로 변환
-    return emoji_to_text(html)
+    # 이모지를 SVG 아이콘으로 변환
+    return emoji_to_svg(html)
 
 
 @router.post("/generate")
