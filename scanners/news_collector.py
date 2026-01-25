@@ -427,15 +427,46 @@ def get_top_buzz(limit: int = 50) -> list:
     return results
 
 
+def is_us_market_holiday() -> bool:
+    """미국 증시 휴장일 체크"""
+    from datetime import date
+    today = date.today()
+
+    # 주말
+    if today.weekday() >= 5:
+        return True
+
+    # 2026년 미국 증시 휴장일
+    holidays_2026 = [
+        date(2026, 1, 1),   # 새해
+        date(2026, 1, 19),  # MLK Day
+        date(2026, 2, 16),  # Presidents Day
+        date(2026, 4, 3),   # Good Friday
+        date(2026, 5, 25),  # Memorial Day
+        date(2026, 7, 3),   # Independence Day (observed)
+        date(2026, 9, 7),   # Labor Day
+        date(2026, 11, 26), # Thanksgiving
+        date(2026, 12, 25), # Christmas
+    ]
+
+    return today in holidays_2026
+
+
 def main():
     parser = argparse.ArgumentParser(description='뉴스 수집 스캐너')
     parser.add_argument('--test', action='store_true', help='테스트 모드')
+    parser.add_argument('--force', action='store_true', help='휴장일 무시')
     args = parser.parse_args()
 
     print("=" * 50)
     print("📰 뉴스 수집 스캐너 시작")
     print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
+
+    # 휴장일 체크
+    if is_us_market_holiday() and not args.force:
+        print("📅 미국 증시 휴장일 - 수집 건너뜀")
+        return
 
     # 테이블 초기화
     init_tables()
