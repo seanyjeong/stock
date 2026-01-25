@@ -765,8 +765,54 @@ def render_report_html(ticker: str, data: dict) -> str:
             <tr><td>부채</td><td>{fmt_num(total_debt, "$")}</td></tr>
             <tr><td>부채비율 (D/E)</td><td>{f"{debt_to_equity:.1f}%" if debt_to_equity else "N/A"}</td></tr>
         </table>
-        {"<p class='positive'>✅ 현금이 부채보다 많음 (재무 건전)</p>" if total_cash and total_debt and total_cash > total_debt else ""}
-        {"<p class='negative'>⚠️ 부채가 현금보다 많음 (주의)</p>" if total_cash and total_debt and total_debt > total_cash else ""}
+"""
+
+    # 재무 상태 종합 판단
+    financial_warnings = []
+    financial_positives = []
+
+    # 매출 체크
+    if not revenue or revenue == 0:
+        financial_warnings.append("❌ 매출 없음 (프리레버뉴)")
+    elif revenue_growth and revenue_growth < -20:
+        financial_warnings.append(f"⚠️ 매출 급감 ({revenue_growth_pct:+.0f}%)")
+
+    # 수익성 체크
+    if net_income and net_income < 0:
+        burn_rate = abs(net_income)
+        if total_cash and burn_rate > 0:
+            runway_years = total_cash / burn_rate
+            if runway_years < 1:
+                financial_warnings.append(f"🚨 현금 소진 {runway_years:.1f}년 후 (위험)")
+            elif runway_years < 2:
+                financial_warnings.append(f"⚠️ 현금 소진 {runway_years:.1f}년 후")
+            else:
+                financial_positives.append(f"💰 현금 {runway_years:.1f}년치 보유")
+        financial_warnings.append("📉 적자 기업")
+
+    # 현금 vs 부채
+    if total_cash and total_debt:
+        if total_cash > total_debt * 10:
+            financial_positives.append("✅ 무차입 경영 (현금 >> 부채)")
+        elif total_cash > total_debt:
+            if net_income and net_income > 0:
+                financial_positives.append("✅ 현금 > 부채 (재무 건전)")
+            else:
+                financial_positives.append("💰 현금 > 부채 (단, 적자)")
+        else:
+            financial_warnings.append("⚠️ 부채 > 현금")
+
+    # 흑자 기업
+    if net_income and net_income > 0:
+        financial_positives.append("✅ 흑자 기업")
+
+    # HTML 출력
+    for warn in financial_warnings:
+        html += f"<p class='negative'>{warn}</p>"
+    for pos in financial_positives:
+        html += f"<p class='positive'>{pos}</p>"
+
+    html += """
     </section>
     <hr>
 """
