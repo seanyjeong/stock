@@ -10,6 +10,9 @@
 		note: string | null;
 		target_price: number | null;
 		alert_price: number | null;
+		folder_id: number | null;
+		folder_name: string | null;
+		folder_color: string | null;
 		current_price: number | null;
 		regular_price: number | null;
 		afterhours_price: number | null;
@@ -19,6 +22,14 @@
 		rsi?: number | null;
 		rsi_signal?: string | null;
 		macd_trend?: string | null;
+	}
+
+	interface Folder {
+		id: number;
+		name: string;
+		color: string;
+		is_default: boolean;
+		item_count: number;
 	}
 
 	interface SelectedTickerInfo {
@@ -31,6 +42,9 @@
 	}
 
 	let watchlist = $state<WatchlistItem[]>([]);
+	let folders = $state<Folder[]>([]);
+	let selectedFolderId = $state<number | null>(null); // null = 전체
+	let unfiledCount = $state(0);
 	let isLoading = $state(true);
 	let error = $state('');
 
@@ -40,9 +54,15 @@
 	let note = $state('');
 	let targetPrice = $state('');
 	let alertPrice = $state('');
+	let addFolderId = $state<number | null>(null);
 	let isSubmitting = $state(false);
 	let selectedInfo = $state<SelectedTickerInfo | null>(null);
 	let isLoadingInfo = $state(false);
+
+	// Folder management
+	let showFolderForm = $state(false);
+	let newFolderName = $state('');
+	let newFolderColor = $state('#3b82f6');
 
 	// Search
 	let searchQuery = $state('');
@@ -53,8 +73,23 @@
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
 	onMount(async () => {
-		await loadWatchlist();
+		await Promise.all([loadWatchlist(), loadFolders()]);
 	});
+
+	async function loadFolders() {
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/folders`, {
+				headers: getAuthHeaders(),
+			});
+			if (response.ok) {
+				const data = await response.json();
+				folders = data.folders;
+				unfiledCount = data.unfiled_count;
+			}
+		} catch {
+			// Ignore
+		}
+	}
 
 	function getAuthHeaders() {
 		const token = localStorage.getItem('access_token');
@@ -169,6 +204,7 @@
 					note: note || null,
 					target_price: targetPrice ? parseFloat(targetPrice) : null,
 					alert_price: alertPrice ? parseFloat(alertPrice) : null,
+					folder_id: addFolderId,
 				}),
 			});
 
@@ -183,8 +219,9 @@
 			note = '';
 			targetPrice = '';
 			alertPrice = '';
+			addFolderId = null;
 
-			await loadWatchlist();
+			await Promise.all([loadWatchlist(), loadFolders()]);
 		} catch (e) {
 			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
 		} finally {
@@ -221,6 +258,50 @@
 		const sign = value >= 0 ? '+' : '';
 		return sign + value.toFixed(1) + '%';
 	}
+
+	// Filtered watchlist based on selected folder
+	function getFilteredWatchlist(): WatchlistItem[] {
+		if (selectedFolderId === null) return watchlist;
+		if (selectedFolderId === -1) return watchlist.filter(item => !item.folder_id); // unfiled
+		return watchlist.filter(item => item.folder_id === selectedFolderId);
+	}
+
+	async function createFolder() {
+		if (!newFolderName.trim()) return;
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/folders`, {
+				method: 'POST',
+				headers: getAuthHeaders(),
+				body: JSON.stringify({ name: newFolderName, color: newFolderColor }),
+			});
+			if (response.ok) {
+				newFolderName = '';
+				showFolderForm = false;
+				await loadFolders();
+			} else {
+				const data = await response.json();
+				alert(data.detail || '폴더 생성 실패');
+			}
+		} catch {
+			alert('폴더 생성 실패');
+		}
+	}
+
+	async function deleteFolder(folderId: number) {
+		if (!confirm('폴더를 삭제하시겠습니까? 종목은 삭제되지 않습니다.')) return;
+		try {
+			const response = await fetch(`${API_BASE}/api/watchlist/folders/${folderId}`, {
+				method: 'DELETE',
+				headers: getAuthHeaders(),
+			});
+			if (response.ok) {
+				if (selectedFolderId === folderId) selectedFolderId = null;
+				await Promise.all([loadFolders(), loadWatchlist()]);
+			}
+		} catch {
+			alert('폴더 삭제 실패');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -230,10 +311,65 @@
 <div class="container">
 	<div class="header">
 		<h1>Star 관심 종목</h1>
-		<button class="btn-add" onclick={() => showAddForm = !showAddForm}>
-			{showAddForm ? '취소' : '+ 추가'}
-		</button>
+		<div class="header-buttons">
+			<button class="btn-folder" onclick={() => showFolderForm = !showFolderForm} title="폴더 관리">
+				+폴더
+			</button>
+			<button class="btn-add" onclick={() => showAddForm = !showAddForm}>
+				{showAddForm ? '취소' : '+ 추가'}
+			</button>
+		</div>
 	</div>
+
+	<!-- Folder Tabs -->
+	{#if folders.length > 0}
+		<div class="folder-tabs">
+			<button
+				class="folder-tab"
+				class:active={selectedFolderId === null}
+				onclick={() => selectedFolderId = null}
+			>
+				전체 ({watchlist.length})
+			</button>
+			{#each folders as folder}
+				<button
+					class="folder-tab"
+					class:active={selectedFolderId === folder.id}
+					onclick={() => selectedFolderId = folder.id}
+					style="--folder-color: {folder.color}"
+				>
+					{folder.name} ({folder.item_count})
+					{#if !folder.is_default}
+						<span class="folder-delete" onclick={(e) => { e.stopPropagation(); deleteFolder(folder.id); }}>×</span>
+					{/if}
+				</button>
+			{/each}
+			{#if unfiledCount > 0}
+				<button
+					class="folder-tab unfiled"
+					class:active={selectedFolderId === -1}
+					onclick={() => selectedFolderId = -1}
+				>
+					미분류 ({unfiledCount})
+				</button>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- New Folder Form -->
+	{#if showFolderForm}
+		<div class="folder-form card">
+			<input
+				type="text"
+				placeholder="폴더 이름"
+				bind:value={newFolderName}
+				class="folder-input"
+			/>
+			<input type="color" bind:value={newFolderColor} class="folder-color" />
+			<button class="btn-create-folder" onclick={createFolder}>생성</button>
+			<button class="btn-cancel-folder" onclick={() => showFolderForm = false}>취소</button>
+		</div>
+	{/if}
 
 	{#if error}
 		<div class="error-box">{error}</div>
@@ -305,6 +441,17 @@
 				<label>메모 (선택)</label>
 				<input type="text" placeholder="관심 이유, 진입 시점 등" bind:value={note} />
 			</div>
+			{#if folders.length > 0}
+				<div class="form-group">
+					<label>폴더</label>
+					<select bind:value={addFolderId} class="folder-select">
+						<option value={null}>폴더 없음</option>
+						{#each folders as folder}
+							<option value={folder.id}>{folder.name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 			<button class="btn-submit" onclick={addToWatchlist} disabled={isSubmitting || !ticker}>
 				{isSubmitting ? '추가 중...' : '관심 종목 추가'}
 			</button>
@@ -314,9 +461,10 @@
 	{#if isLoading}
 		<div class="loading">로딩 중...</div>
 	{:else}
-		{#if watchlist.length > 0}
+		{@const filteredList = getFilteredWatchlist()}
+		{#if filteredList.length > 0}
 			<div class="watchlist">
-				{#each watchlist as item}
+				{#each filteredList as item}
 					<div class="watchlist-card card">
 						<div class="card-header">
 							<div class="ticker-info">
@@ -750,5 +898,131 @@
 		color: white;
 		font-weight: 600;
 		cursor: pointer;
+	}
+
+	/* Folder styles */
+	.header-buttons {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.btn-folder {
+		padding: 0.5rem 0.75rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #8b949e;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.btn-folder:hover {
+		border-color: #58a6ff;
+		color: #58a6ff;
+	}
+
+	.folder-tabs {
+		display: flex;
+		gap: 0.5rem;
+		overflow-x: auto;
+		padding-bottom: 0.5rem;
+		margin-bottom: 1rem;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.folder-tab {
+		flex-shrink: 0;
+		padding: 0.5rem 0.75rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #8b949e;
+		font-size: 0.8rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.folder-tab:hover {
+		border-color: #484f58;
+	}
+
+	.folder-tab.active {
+		background: var(--folder-color, #238636);
+		border-color: var(--folder-color, #238636);
+		color: white;
+	}
+
+	.folder-tab.unfiled {
+		--folder-color: #8b949e;
+	}
+
+	.folder-delete {
+		margin-left: 0.25rem;
+		opacity: 0.6;
+		font-weight: bold;
+	}
+
+	.folder-delete:hover {
+		opacity: 1;
+		color: #f85149;
+	}
+
+	.folder-form {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		padding: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.folder-input {
+		flex: 1;
+		padding: 0.5rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #f0f6fc;
+		font-size: 0.85rem;
+	}
+
+	.folder-color {
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.btn-create-folder {
+		padding: 0.5rem 0.75rem;
+		background: #238636;
+		border: none;
+		border-radius: 6px;
+		color: white;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.btn-cancel-folder {
+		padding: 0.5rem 0.75rem;
+		background: transparent;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		color: #8b949e;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.folder-select {
+		width: 100%;
+		padding: 0.75rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #f0f6fc;
+		font-size: 0.9rem;
 	}
 </style>

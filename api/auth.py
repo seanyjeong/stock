@@ -318,10 +318,12 @@ async def list_users(admin: dict = Depends(require_admin)):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     cur.execute("""
-        SELECT id, kakao_id, nickname, email, profile_image,
-               is_approved, is_admin, created_at, last_login
-        FROM users
-        ORDER BY created_at DESC
+        SELECT u.id, u.kakao_id, u.nickname, u.email, u.profile_image,
+               u.is_approved, u.is_admin, u.created_at, u.last_login,
+               p.profile_type
+        FROM users u
+        LEFT JOIN user_profiles p ON u.id = p.user_id
+        ORDER BY u.created_at DESC
     """)
     users = cur.fetchall()
 
@@ -338,6 +340,7 @@ async def list_users(admin: dict = Depends(require_admin)):
                 "profile_image": u["profile_image"],
                 "is_approved": u["is_approved"],
                 "is_admin": u["is_admin"],
+                "profile_type": u["profile_type"],
                 "created_at": u["created_at"].isoformat() if u["created_at"] else None,
                 "last_login": u["last_login"].isoformat() if u["last_login"] else None,
             }

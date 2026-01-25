@@ -142,3 +142,29 @@ export interface SqueezeResponse {
 	hot_count: number;
 	holdings_count: number;
 }
+
+// Investment Profile types
+export interface UserProfile {
+	id: number;
+	user_id: number;
+	experience: 'under_1y' | '1_3y' | 'over_3y';
+	risk_tolerance: 'under_5' | 'under_10' | 'under_20' | 'over_20';
+	duration_preference: 'day' | 'swing' | 'long' | 'mixed';
+	profit_expectation: 'stable' | 'moderate' | 'aggressive';
+	sectors: string[];
+	profile_type: 'conservative' | 'balanced' | 'aggressive';
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ProfileCreateRequest {
+	experience: string;
+	risk_tolerance: string;
+	duration_preference: string;
+	profit_expectation: string;
+	sectors: string[];
+}
+
+export interface ProfileCheckResponse {
+	has_profile: boolean;
+}

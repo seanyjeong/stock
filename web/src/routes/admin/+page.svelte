@@ -12,9 +12,16 @@
 		profile_image: string | null;
 		is_approved: boolean;
 		is_admin: boolean;
+		profile_type: 'conservative' | 'balanced' | 'aggressive' | null;
 		created_at: string | null;
 		last_login: string | null;
 	}
+
+	const profileTypes = {
+		conservative: { emoji: '🛡️', label: '안정형', color: '#58a6ff' },
+		balanced: { emoji: '⚖️', label: '균형형', color: '#a371f7' },
+		aggressive: { emoji: '🔥', label: '공격형', color: '#f85149' }
+	};
 
 	interface Announcement {
 		id: number;
@@ -300,6 +307,13 @@
 								{#if !user.is_approved}
 									<span class="badge pending">대기</span>
 								{/if}
+								{#if user.profile_type}
+									<span class="badge profile-type {user.profile_type}">
+										{profileTypes[user.profile_type].emoji} {profileTypes[user.profile_type].label}
+									</span>
+								{:else}
+									<span class="badge no-profile">설문미완료</span>
+								{/if}
 							</div>
 							<div class="user-meta">
 								{#if user.email}
@@ -565,6 +579,30 @@
 	.badge.pending {
 		background: rgba(240, 136, 62, 0.2);
 		color: #f0883e;
+	}
+
+	.badge.profile-type {
+		font-size: 0.55rem;
+	}
+
+	.badge.conservative {
+		background: rgba(88, 166, 255, 0.2);
+		color: #58a6ff;
+	}
+
+	.badge.balanced {
+		background: rgba(163, 113, 247, 0.2);
+		color: #a371f7;
+	}
+
+	.badge.aggressive {
+		background: rgba(248, 81, 73, 0.2);
+		color: #f85149;
+	}
+
+	.badge.no-profile {
+		background: rgba(110, 118, 129, 0.2);
+		color: #6e7681;
 	}
 
 	.user-meta {

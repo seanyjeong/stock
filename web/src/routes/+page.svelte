@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import type { PageData } from './$types';
 	import RecommendationTabs from '$lib/components/RecommendationTabs.svelte';
+	import ProfileRecommendations from '$lib/components/ProfileRecommendations.svelte';
 	import RegSHOBadge from '$lib/components/RegSHOBadge.svelte';
 	import Icon from '$lib/components/Icons.svelte';
 
@@ -41,6 +42,24 @@
 	let isLoggedIn = $state(false);
 	let isAdmin = $state(false);
 	let blogExpanded = $state(browser ? localStorage.getItem('blogExpanded') !== 'false' : true);
+
+	// Profile recommendations (client-side with auth)
+	interface ProfileRec {
+		ticker: string;
+		company_name?: string;
+		current_price: number;
+		score: number;
+		recommended_entry: number;
+		stop_loss: number;
+		target: number;
+		rsi?: number;
+		macd_cross?: string;
+		news_score?: number;
+		sector?: string;
+	}
+	let profileRecs = $state<ProfileRec[]>([]);
+	let profileType = $state<string>('balanced');
+	let profileRecsUpdated = $state<string | null>(null);
 
 	$effect(() => {
 		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
@@ -94,6 +113,21 @@
 			console.error('Failed to load portfolio:', e);
 		} finally {
 			portfolioLoading = false;
+		}
+
+		// Load profile-based recommendations
+		try {
+			const recResponse = await fetch(`${API_BASE}/api/recommendations`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (recResponse.ok) {
+				const recData = await recResponse.json();
+				profileType = recData.profile_type || 'balanced';
+				profileRecs = recData.recommendations || [];
+				profileRecsUpdated = recData.created_at || null;
+			}
+		} catch (e) {
+			console.error('Failed to load profile recommendations:', e);
 		}
 	});
 
@@ -336,8 +370,19 @@
 				</section>
 			{/if}
 
-			<!-- Recommendations Section -->
-			{#if recommendations}
+			<!-- Profile-based Recommendations (logged in users) -->
+			{#if isLoggedIn && profileRecs.length > 0}
+				<ProfileRecommendations
+					{profileType}
+					recommendations={profileRecs}
+					createdAt={profileRecsUpdated}
+					{formatCurrency}
+					{formatDate}
+				/>
+			{/if}
+
+			<!-- Legacy Recommendations Section -->
+			{#if recommendations && !profileRecs.length}
 				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} />
 			{/if}
 

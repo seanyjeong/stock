@@ -64,6 +64,22 @@
 			localStorage.setItem('access_token', data.access_token);
 			localStorage.setItem('user', JSON.stringify(data.user));
 
+			// Check if user has a profile (investment survey)
+			try {
+				const profileCheck = await fetch(`${API_BASE}/api/profile/check`, {
+					headers: { 'Authorization': `Bearer ${data.access_token}` },
+				});
+				const profileData = await profileCheck.json();
+
+				if (!profileData.has_profile) {
+					// No profile - redirect to survey first
+					goto('/survey');
+					return;
+				}
+			} catch {
+				// If profile check fails, continue with normal flow
+			}
+
 			// Check approval status
 			if (!data.user.is_approved) {
 				goto('/pending-approval');

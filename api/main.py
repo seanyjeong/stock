@@ -20,6 +20,7 @@ from api.notifications import router as notifications_router
 from api.announcements import router as announcements_router
 from api.indicators import router as indicators_router
 from api.chart import router as chart_router
+from api.profile import router as profile_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ app.include_router(notifications_router)
 app.include_router(announcements_router)
 app.include_router(indicators_router)
 app.include_router(chart_router)
+app.include_router(profile_router)
 
 
 @app.exception_handler(HTTPException)
@@ -361,58 +363,129 @@ async def get_blog_posts():
 
 
 @app.get("/api/recommendations")
-async def get_recommendations():
+async def get_recommendations(authorization: str = Header(None)):
     """
-    Get latest recommendations from all scanner tables.
-    Returns day_trade, swing, and longterm recommendations.
+    Get recommendations based on user's investment profile.
+    - aggressive: sorted by day_trade_score
+    - balanced: sorted by swing_score
+    - conservative: sorted by longterm_score
     """
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        result = {}
+        # 1. 사용자 프로필 조회 (로그인된 경우)
+        profile_type = "balanced"  # 기본값
+        if authorization and authorization.startswith("Bearer "):
+            token = authorization.split(" ")[1]
+            try:
+                from api.auth import verify_jwt_token
+                payload = verify_jwt_token(token)
+                if payload:
+                    user_id = payload.get("user_id")
+                    cur.execute(
+                        "SELECT profile_type FROM user_profiles WHERE user_id = %s",
+                        (user_id,)
+                    )
+                    profile_row = cur.fetchone()
+                    if profile_row:
+                        profile_type = profile_row["profile_type"]
+            except:
+                pass  # 토큰 오류 시 기본값 사용
 
-        # Day trade recommendations
+        # 2. 오늘 스캔 결과 조회
         cur.execute(
-            "SELECT recommendations, created_at FROM day_trade_recommendations "
+            "SELECT results, created_at FROM daily_scan_results "
+            "WHERE scan_date = CURRENT_DATE "
             "ORDER BY created_at DESC LIMIT 1"
         )
-        row = cur.fetchone()
-        if row:
-            result["day_trade"] = {
-                "recommendations": row["recommendations"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-            }
+        scan_row = cur.fetchone()
 
-        # Swing recommendations
-        cur.execute(
-            "SELECT recommendations, created_at FROM swing_recommendations "
-            "ORDER BY created_at DESC LIMIT 1"
-        )
-        row = cur.fetchone()
-        if row:
-            result["swing"] = {
-                "recommendations": row["recommendations"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-            }
+        result = {"profile_type": profile_type}
 
-        # Longterm recommendations
-        cur.execute(
-            "SELECT recommendations, created_at FROM longterm_recommendations "
-            "ORDER BY created_at DESC LIMIT 1"
-        )
-        row = cur.fetchone()
-        if row:
-            result["longterm"] = {
-                "recommendations": row["recommendations"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-            }
+        if scan_row and scan_row["results"]:
+            import json
+            scan_results = scan_row["results"] if isinstance(scan_row["results"], list) else json.loads(scan_row["results"])
+
+            # 성향별 정렬 키 선택
+            if profile_type == "aggressive":
+                score_key = "day_trade_score"
+                entry_key = "entry_aggressive"
+            elif profile_type == "conservative":
+                score_key = "longterm_score"
+                entry_key = "entry_conservative"
+            else:  # balanced
+                score_key = "swing_score"
+                entry_key = "entry_balanced"
+
+            # 점수순 정렬
+            sorted_results = sorted(scan_results, key=lambda x: -x.get(score_key, 0))
+
+            # 상위 5개
+            top_picks = []
+            for item in sorted_results[:5]:
+                top_picks.append({
+                    "ticker": item.get("ticker"),
+                    "company_name": item.get("company_name", item.get("ticker")),
+                    "current_price": item.get("current_price"),
+                    "score": item.get(score_key, 0),
+                    "recommended_entry": item.get(entry_key),
+                    "stop_loss": item.get("stop_loss"),
+                    "target": item.get("target"),
+                    "rsi": item.get("rsi"),
+                    "macd_cross": item.get("macd_cross"),
+                    "news_score": item.get("news_score", 0),
+                    "sector": item.get("sector", "Unknown"),
+                    # Phase 3 새 필드
+                    "recommendation_reason": item.get("recommendation_reason", ""),
+                    "rating": item.get("rating", ""),
+                    "rr_ratio": item.get("rr_ratio", 0),
+                    "split_entries": item.get("split_entries", [])
+                })
+
+            result["recommendations"] = top_picks
+            result["created_at"] = scan_row["created_at"].isoformat() if scan_row["created_at"] else None
+
+        # 3. 기존 추천도 유지 (fallback)
+        if "recommendations" not in result or not result["recommendations"]:
+            # Day trade recommendations
+            cur.execute(
+                "SELECT recommendations, created_at FROM day_trade_recommendations "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row:
+                result["day_trade"] = {
+                    "recommendations": row["recommendations"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                }
+
+            # Swing recommendations
+            cur.execute(
+                "SELECT recommendations, created_at FROM swing_recommendations "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row:
+                result["swing"] = {
+                    "recommendations": row["recommendations"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                }
+
+            # Longterm recommendations
+            cur.execute(
+                "SELECT recommendations, created_at FROM longterm_recommendations "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if row:
+                result["longterm"] = {
+                    "recommendations": row["recommendations"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                }
 
         cur.close()
         conn.close()
-
-        if not result:
-            raise HTTPException(status_code=404, detail="No recommendations found")
 
         return result
     except HTTPException:

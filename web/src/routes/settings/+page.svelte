@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icons.svelte';
+	import type { UserProfile } from '$lib/types';
 
 	interface User {
 		id: number;
@@ -14,10 +15,20 @@
 		is_admin?: boolean;
 	}
 
+	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
+
 	let user = $state<User | null>(null);
 	let isLoggedIn = $state(false);
+	let profile = $state<UserProfile | null>(null);
+	let isLoadingProfile = $state(false);
 
-	onMount(() => {
+	const profileTypes = {
+		conservative: { emoji: '🛡️', label: '안정형', color: '#58a6ff' },
+		balanced: { emoji: '⚖️', label: '균형형', color: '#a371f7' },
+		aggressive: { emoji: '🔥', label: '공격형', color: '#f85149' }
+	};
+
+	onMount(async () => {
 		if (browser) {
 			const token = localStorage.getItem('access_token');
 			const userStr = localStorage.getItem('user');
@@ -25,9 +36,30 @@
 			if (token && userStr) {
 				isLoggedIn = true;
 				user = JSON.parse(userStr);
+				await loadProfile(token);
 			}
 		}
 	});
+
+	async function loadProfile(token: string) {
+		isLoadingProfile = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/profile/`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (response.ok) {
+				profile = await response.json();
+			}
+		} catch {
+			// Profile not found
+		} finally {
+			isLoadingProfile = false;
+		}
+	}
+
+	function retakeSurvey() {
+		goto('/survey?retake=true');
+	}
 
 	function handleLogin() {
 		goto('/login');
@@ -92,6 +124,32 @@
 		{/if}
 	</section>
 
+	{#if isLoggedIn}
+		<section class="card">
+			<h2>투자성향</h2>
+			{#if isLoadingProfile}
+				<div class="profile-loading">불러오는 중...</div>
+			{:else if profile}
+				<div class="profile-info">
+					<div class="profile-type" style="--profile-color: {profileTypes[profile.profile_type as keyof typeof profileTypes]?.color}">
+						<span class="profile-emoji">{profileTypes[profile.profile_type as keyof typeof profileTypes]?.emoji}</span>
+						<span class="profile-label">{profileTypes[profile.profile_type as keyof typeof profileTypes]?.label}</span>
+					</div>
+					<button class="btn-retake" onclick={retakeSurvey}>
+						다시하기
+					</button>
+				</div>
+			{:else}
+				<div class="no-profile">
+					<p>투자성향 설문을 완료해주세요</p>
+					<button class="btn-survey" onclick={() => goto('/survey')}>
+						설문하기
+					</button>
+				</div>
+			{/if}
+		</section>
+	{/if}
+
 	<section class="card">
 		<h2>알림</h2>
 		<a href="/notifications" class="menu-link">
@@ -105,7 +163,7 @@
 		<div class="info-list">
 			<div class="info-item">
 				<span class="info-label">버전</span>
-				<span class="info-value">1.9.4</span>
+				<span class="info-value">2.0.0</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">개발자</span>
@@ -307,5 +365,78 @@
 
 	.menu-link .arrow {
 		color: #8b949e;
+	}
+
+	/* Profile Section */
+	.profile-loading {
+		color: #8b949e;
+		font-size: 0.85rem;
+		padding: 0.5rem 0;
+	}
+
+	.profile-info {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.profile-type {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.profile-emoji {
+		font-size: 1.5rem;
+	}
+
+	.profile-label {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--profile-color, #f0f6fc);
+	}
+
+	.btn-retake {
+		padding: 0.5rem 1rem;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		background: #21262d;
+		color: #8b949e;
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-retake:hover {
+		border-color: #58a6ff;
+		color: #58a6ff;
+	}
+
+	.no-profile {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.no-profile p {
+		color: #8b949e;
+		font-size: 0.9rem;
+		margin: 0;
+	}
+
+	.btn-survey {
+		padding: 0.5rem 1rem;
+		border: none;
+		border-radius: 8px;
+		background: #238636;
+		color: white;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-survey:hover {
+		background: #2ea043;
 	}
 </style>

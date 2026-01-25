@@ -14,6 +14,7 @@
 | **프로세스 관리** | systemd | - |
 | **프론트 배포** | Vercel | - |
 | **인증** | 카카오 OAuth | - |
+| **AI** | Gemini 2.0 Flash | google-genai |
 
 ---
 
@@ -75,18 +76,23 @@ sudo journalctl -u stock-api -f    # 로그 확인
 ├── api/                      # 백엔드 API
 │   ├── main.py              # FastAPI 메인
 │   ├── auth.py              # 인증 (카카오 OAuth)
+│   ├── profile.py           # 투자성향 프로필 API
 │   └── trades.py            # 거래 API
+├── scanners/                 # 스캐너 시스템 (v2)
+│   ├── news_collector.py    # 뉴스 수집 (SEC/Finviz/Yahoo)
+│   └── full_market_scanner.py # 시장 스캔 + Gemini AI
 ├── web/                      # 프론트엔드 (SvelteKit)
 │   ├── src/
 │   │   ├── routes/          # 페이지
-│   │   └── lib/             # 컴포넌트
+│   │   └── lib/
+│   │       └── components/
+│   │           ├── ProfileRecommendations.svelte  # 맞춤 추천
+│   │           └── RecommendationModal.svelte     # 상세 분석 모달
 │   └── package.json
 ├── stock_collector.py        # 데이터 수집 (cron)
-├── day_trader_scanner.py     # 단타 추천
-├── swing_long_scanner.py     # 스윙/장기 추천
-├── .env                      # 환경 변수
+├── .env                      # 환경 변수 (GEMINI_API_KEY 포함)
 ├── CLAUDE.md                 # Claude 설정
-├── HANDOFF.md                # 작업 인수인계
+├── HANDOFF_v2.md             # 작업 인수인계
 └── ARCHITECTURE.md           # 이 문서
 ```
 
@@ -147,6 +153,31 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | note | text | 메모 |
 | target_price | numeric | 목표가 |
 | alert_price | numeric | 알림가 |
+| folder_id | integer | FK → watchlist_folders (nullable) |
+
+#### watchlist_folders
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| user_id | integer | FK → users |
+| name | varchar(50) | 폴더명 (UNIQUE per user) |
+| color | varchar(7) | HEX 색상 (#3b82f6) |
+| is_default | boolean | 기본 폴더 여부 (삭제 불가) |
+| sort_order | integer | 정렬 순서 |
+
+#### user_profiles
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| user_id | integer | FK → users (UNIQUE) |
+| experience | varchar(20) | 투자 경험 (under_1y, 1_3y, over_3y) |
+| risk_tolerance | varchar(20) | 손실 허용 (under_5, under_10, under_20, over_20) |
+| duration_preference | varchar(20) | 기간 선호 (day, swing, long, mixed) |
+| profit_expectation | varchar(20) | 수익 기대 (stable, moderate, aggressive) |
+| sectors | text[] | 관심 섹터 배열 |
+| profile_type | varchar(20) | 계산된 성향 (conservative, balanced, aggressive) |
+| created_at | timestamp | 생성일 |
+| updated_at | timestamp | 수정일 |
 
 ### 주식 데이터
 
@@ -241,6 +272,60 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | is_active | boolean | 활성 여부 |
 | created_by | integer | FK → users |
 
+### 스캐너 시스템 (v2)
+
+#### news_mentions
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| ticker | varchar | 종목 티커 |
+| source | varchar | 소스 (SEC, Finviz, Yahoo) |
+| headline | text | 헤드라인 |
+| url | text | URL |
+| sentiment | varchar | 감성 (positive, negative, neutral) |
+| weight | integer | 가중치 |
+| collected_at | timestamp | 수집일시 |
+
+#### daily_news_scores
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| scan_date | date | 스캔 날짜 (UNIQUE) |
+| ticker | varchar | 종목 티커 |
+| total_score | numeric | 뉴스 총점 |
+| positive_count | integer | 긍정 뉴스 수 |
+| negative_count | integer | 부정 뉴스 수 |
+
+#### daily_scan_results
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| scan_date | date | 스캔 날짜 (UNIQUE) |
+| results | jsonb | 스캔 결과 (모든 성향 점수 + AI 분석 포함) |
+| created_at | timestamp | 생성일 |
+
+**results JSONB 구조:**
+```json
+{
+  "ticker": "BNAI",
+  "current_price": 58.54,
+  "day_trade_score": 75.0,
+  "swing_score": 50.0,
+  "longterm_score": 20.0,
+  "entry_aggressive": 59.71,
+  "entry_balanced": 42.27,
+  "entry_conservative": 25.73,
+  "recommendation_reason": "RSI 32로 과매도 구간...",
+  "rating": "★★★",
+  "rr_ratio": 1.75,
+  "split_entries": [
+    {"price": 58.54, "pct": 40, "label": "현재가"},
+    {"price": 52.00, "pct": 30, "label": "1차 지지"},
+    {"price": 46.00, "pct": 30, "label": "강한 지지"}
+  ]
+}
+```
+
 ### 알림
 
 #### notification_settings
@@ -273,6 +358,14 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/auth/kakao/callback` | 카카오 콜백 |
 | GET | `/api/auth/me` | 현재 사용자 정보 |
 
+### 투자성향 프로필
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/profile/check` | 프로필 존재 여부 확인 |
+| GET | `/api/profile/` | 프로필 조회 |
+| POST | `/api/profile/` | 프로필 생성 (최초 설문) |
+| PUT | `/api/profile/` | 프로필 수정 (다시하기) |
+
 ### 포트폴리오
 | Method | Endpoint | 설명 |
 |--------|----------|------|
@@ -294,6 +387,19 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | GET | `/api/recommendations` | 추천 종목 |
 | GET | `/api/blog` | 블로그 포스트 |
 | GET | `/api/announcements/` | 공지사항 |
+
+### 관심종목
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/watchlist/` | 관심 종목 목록 (폴더 정보 포함) |
+| POST | `/api/watchlist/` | 관심 종목 추가 (folder_id 옵션) |
+| PUT | `/api/watchlist/{id}` | 관심 종목 수정 |
+| DELETE | `/api/watchlist/{id}` | 관심 종목 삭제 |
+| PUT | `/api/watchlist/{id}/folder` | 종목 폴더 이동 |
+| GET | `/api/watchlist/folders` | 폴더 목록 조회 |
+| POST | `/api/watchlist/folders` | 폴더 생성 |
+| PUT | `/api/watchlist/folders/{id}` | 폴더 수정 |
+| DELETE | `/api/watchlist/folders/{id}` | 폴더 삭제 (기본폴더 제외) |
 
 ### 알림
 | Method | Endpoint | 설명 |
@@ -502,5 +608,16 @@ except Exception as e:
 ---
 
 ## 현재 버전
-- **프론트엔드**: v1.9.2
+- **프론트엔드**: v1.9.5
 - **문서 업데이트**: 2026-01-25
+
+## 변경 이력
+
+### v1.9.5 (2026-01-25)
+- 투자성향 프로필 시스템 추가
+  - 5개 설문 (경험, 리스크허용, 기간선호, 수익기대, 관심섹터)
+  - 성향 자동 계산 (안정형/균형형/공격형)
+  - 로그인 → 설문 → 승인대기 플로우
+- user_profiles 테이블 추가
+- /api/profile 엔드포인트 추가
+- 설정 페이지에 투자성향 표시 및 다시하기 기능

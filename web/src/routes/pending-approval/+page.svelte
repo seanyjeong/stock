@@ -5,17 +5,42 @@
 	import Icon from '$lib/components/Icons.svelte';
 
 	let user = $state<{ nickname: string } | null>(null);
+	let profileType = $state<string | null>(null);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
-	onMount(() => {
+	const profileTypes = {
+		conservative: { emoji: '🛡️', label: '안정형' },
+		balanced: { emoji: '⚖️', label: '균형형' },
+		aggressive: { emoji: '🔥', label: '공격형' }
+	};
+
+	onMount(async () => {
 		const userStr = localStorage.getItem('user');
 		if (userStr) {
 			user = JSON.parse(userStr);
+			await loadProfile();
 		} else {
 			goto('/login');
 		}
 	});
+
+	async function loadProfile() {
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
+		try {
+			const response = await fetch(`${API_BASE}/api/profile/`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (response.ok) {
+				const profile = await response.json();
+				profileType = profile.profile_type;
+			}
+		} catch {
+			// Profile not found
+		}
+	}
 
 	function handleLogout() {
 		localStorage.removeItem('access_token');
@@ -63,9 +88,16 @@
 			<p class="greeting">안녕하세요, <strong>{user.nickname}</strong>님!</p>
 		{/if}
 
+		{#if profileType}
+			<div class="profile-badge">
+				<span class="profile-emoji">{profileTypes[profileType as keyof typeof profileTypes]?.emoji}</span>
+				<span class="profile-label">{profileTypes[profileType as keyof typeof profileTypes]?.label}으로 설정됨</span>
+			</div>
+		{/if}
+
 		<p class="message">
 			관리자가 회원 가입을 승인하면<br/>
-			서비스를 이용하실 수 있습니다.
+			맞춤 추천을 받아보실 수 있습니다.
 		</p>
 
 		<div class="actions">
@@ -172,5 +204,27 @@
 	.btn-logout:hover {
 		border-color: #f85149;
 		color: #f85149;
+	}
+
+	.profile-badge {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		background: rgba(35, 134, 54, 0.15);
+		border: 1px solid #238636;
+		border-radius: 8px;
+		padding: 0.75rem 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.profile-emoji {
+		font-size: 1.25rem;
+	}
+
+	.profile-label {
+		color: #3fb950;
+		font-weight: 600;
+		font-size: 0.9rem;
 	}
 </style>
