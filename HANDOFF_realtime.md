@@ -103,7 +103,7 @@ ws.onmessage = (event) => {
 - REST API로 간단
 - WebSocket보다 구현 쉬움
 
-**토큰:** `d5pp5j9r01qq2b68humgd5pp5j9r01qq2b68hun0`
+**토큰:** `.env`의 `FINNHUB_API_KEY` 참조
 
 ### 구현 방식
 
