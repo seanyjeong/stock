@@ -407,40 +407,75 @@ async def get_recommendations(authorization: str = Header(None)):
 
         if scan_row and scan_row["results"]:
             import json
-            scan_results = scan_row["results"] if isinstance(scan_row["results"], list) else json.loads(scan_row["results"])
+            raw_results = scan_row["results"]
+            if isinstance(raw_results, str):
+                raw_results = json.loads(raw_results)
 
-            def get_top_picks(items, score_key, entry_key, limit=5):
-                """성향별 상위 종목 추출"""
-                sorted_items = sorted(items, key=lambda x: -x.get(score_key, 0))
-                picks = []
-                for item in sorted_items[:limit]:
-                    picks.append({
-                        "ticker": item.get("ticker"),
-                        "company_name": item.get("company_name", item.get("ticker")),
-                        "current_price": item.get("current_price"),
-                        "score": item.get(score_key, 0),
-                        "recommended_entry": item.get(entry_key),
-                        "stop_loss": item.get("stop_loss"),
-                        "target": item.get("target"),
-                        "rsi": item.get("rsi"),
-                        "macd_cross": item.get("macd_cross"),
-                        "news_score": item.get("news_score", 0),
-                        "sector": item.get("sector", "Unknown"),
-                        "recommendation_reason": item.get("recommendation_reason", ""),
-                        "rating": item.get("rating", ""),
-                        "rr_ratio": item.get("rr_ratio", 0),
-                        "split_entries": item.get("split_entries", [])
-                    })
-                return picks
+            # 새 형식 (v2): {"day_trade": [...], "swing": [...], "longterm": [...]}
+            if isinstance(raw_results, dict) and "day_trade" in raw_results:
+                def format_picks(items):
+                    """추천 목록 포맷팅"""
+                    picks = []
+                    for item in items[:5]:
+                        picks.append({
+                            "ticker": item.get("ticker"),
+                            "company_name": item.get("company_name", item.get("ticker")),
+                            "current_price": item.get("current_price"),
+                            "score": item.get("score", 0),
+                            "recommended_entry": item.get("recommended_entry"),
+                            "stop_loss": item.get("stop_loss"),
+                            "target": item.get("target"),
+                            "rsi": item.get("rsi"),
+                            "macd_cross": item.get("macd_cross"),
+                            "news_score": item.get("news_score", 0),
+                            "sector": item.get("sector", "Unknown"),
+                            "recommendation_reason": item.get("recommendation_reason", ""),
+                            "rating": item.get("rating", ""),
+                            "rr_ratio": item.get("rr_ratio", 0),
+                            "split_entries": item.get("split_entries", [])
+                        })
+                    return picks
 
-            # 모든 성향별 추천 (토글용)
-            result["all_recommendations"] = {
-                "day_trade": get_top_picks(scan_results, "day_trade_score", "entry_aggressive"),
-                "swing": get_top_picks(scan_results, "swing_score", "entry_balanced"),
-                "longterm": get_top_picks(scan_results, "longterm_score", "entry_conservative")
-            }
+                result["all_recommendations"] = {
+                    "day_trade": format_picks(raw_results.get("day_trade", [])),
+                    "swing": format_picks(raw_results.get("swing", [])),
+                    "longterm": format_picks(raw_results.get("longterm", []))
+                }
+            else:
+                # 이전 형식 (v1): flat list
+                scan_results = raw_results if isinstance(raw_results, list) else []
 
-            # 기존 호환: 사용자 프로필에 맞는 추천
+                def get_top_picks(items, score_key, entry_key, limit=5):
+                    """성향별 상위 종목 추출"""
+                    sorted_items = sorted(items, key=lambda x: -x.get(score_key, 0))
+                    picks = []
+                    for item in sorted_items[:limit]:
+                        picks.append({
+                            "ticker": item.get("ticker"),
+                            "company_name": item.get("company_name", item.get("ticker")),
+                            "current_price": item.get("current_price"),
+                            "score": item.get(score_key, 0),
+                            "recommended_entry": item.get(entry_key),
+                            "stop_loss": item.get("stop_loss"),
+                            "target": item.get("target"),
+                            "rsi": item.get("rsi"),
+                            "macd_cross": item.get("macd_cross"),
+                            "news_score": item.get("news_score", 0),
+                            "sector": item.get("sector", "Unknown"),
+                            "recommendation_reason": item.get("recommendation_reason", ""),
+                            "rating": item.get("rating", ""),
+                            "rr_ratio": item.get("rr_ratio", 0),
+                            "split_entries": item.get("split_entries", [])
+                        })
+                    return picks
+
+                result["all_recommendations"] = {
+                    "day_trade": get_top_picks(scan_results, "day_trade_score", "entry_aggressive"),
+                    "swing": get_top_picks(scan_results, "swing_score", "entry_balanced"),
+                    "longterm": get_top_picks(scan_results, "longterm_score", "entry_conservative")
+                }
+
+            # 사용자 프로필에 맞는 추천
             if profile_type == "aggressive":
                 result["recommendations"] = result["all_recommendations"]["day_trade"]
             elif profile_type == "conservative":
