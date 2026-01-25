@@ -94,6 +94,41 @@ ws.onmessage = (event) => {
 };
 ```
 
+---
+
+## 간단한 방식: Finnhub Polling (추천)
+
+**Finnhub API:**
+- 무료: 60콜/분 (2초에 1번)
+- REST API로 간단
+- WebSocket보다 구현 쉬움
+
+**토큰:** `d5pp5j9r01qq2b68humgd5pp5j9r01qq2b68hun0`
+
+### 구현 방식
+
+```javascript
+// 프론트에서 2초마다 폴링
+setInterval(async () => {
+    for (const ticker of portfolio.tickers) {
+        const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=xxx`);
+        const data = await res.json();
+        updatePrice(ticker, data.c); // c = current price
+    }
+}, 2000);
+```
+
+### UI 표시
+- 가격 옆에 "참고용" 또는 "실시간 아님" 표시
+- 예: `$58.54 (참고용)`
+
+### 주의사항
+- 보유 종목 5개면 = 5콜/2초 = 150콜/분 (제한 초과!)
+- 해결: 종목별 순차 호출 (2초 간격)
+- 또는 백엔드에서 캐싱 후 일괄 전달
+
+---
+
 ### 대안 (유료)
 
 | 서비스 | 가격 | 특징 |
