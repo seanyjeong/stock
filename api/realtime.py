@@ -84,6 +84,14 @@ def fetch_yfinance_extended(ticker: str) -> dict | None:
         elif market["status"] == "afterhours" and post_price:
             current = post_price
             source = "afterhours"
+        elif market["status"] == "closed":
+            # 장 마감/주말: 가장 최근 가격 사용 (애프터 > 정규)
+            if post_price:
+                current = post_price
+                source = "afterhours"
+            else:
+                current = regular_price
+                source = "regular"
         else:
             current = regular_price
             source = "regular"
