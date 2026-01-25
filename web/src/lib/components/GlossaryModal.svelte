@@ -15,7 +15,12 @@
 
 	let { onClose }: Props = $props();
 
-	let messages = $state<Message[]>([]);
+	let messages = $state<Message[]>([
+		{
+			role: 'assistant',
+			content: '안녕하세요! 📚 주식 용어가 궁금하면 물어보세요~\n\n예: "숏스퀴즈가 뭐야?", "물타기 뜻", "RSI 해석법"'
+		}
+	]);
 	let inputValue = $state('');
 	let loading = $state(false);
 	let chatContainer = $state<HTMLDivElement | null>(null);
