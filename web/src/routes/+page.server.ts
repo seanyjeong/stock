@@ -34,7 +34,9 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 	}
 }
 
-export const load: PageServerLoad = async ({ fetch }) => {
+export const load: PageServerLoad = async ({ fetch, setHeaders }) => {
+	setHeaders({ 'cache-control': 'no-cache, max-age=0' });
+
 	// Portfolio is loaded client-side with auth token
 	const [regsho, recommendations, blog, announcements, squeeze] = await Promise.all([
 		fetchApi<RegSHOResponse>('/api/regsho', fetch),
