@@ -97,6 +97,14 @@
 		return n.toLocaleString();
 	}
 
+	let filtered = $derived(data?.squeeze_list?.filter(item => {
+		if (filterRating === 'all') return true;
+		if (filterRating === 'holding') return item.is_holding;
+		return item.rating === filterRating;
+	}) ?? []);
+
+	let displayList = $derived(showAll ? filtered : filtered.slice(0, TOP_N));
+
 	$effect(() => {
 		filterRating;
 		showAll = false;
@@ -152,12 +160,7 @@
 		<div class="loading">로딩 중...</div>
 	{:else if data}
 		<div class="squeeze-list">
-			{@const filtered = data.squeeze_list.filter(item => {
-				if (filterRating === 'all') return true;
-				if (filterRating === 'holding') return item.is_holding;
-				return item.rating === filterRating;
-			})}
-			{#each (showAll ? filtered : filtered.slice(0, TOP_N)) as item, i}
+			{#each displayList as item, i}
 				<div class="squeeze-card" class:squeeze={item.rating === 'SQUEEZE'} class:hot={item.rating === 'HOT'} class:holding={item.is_holding}>
 					<div class="card-rank">#{i + 1}</div>
 					<div class="card-main">
