@@ -569,9 +569,9 @@
 
 					<div class="squeeze-header-row">
 						<span class="col-ticker">티커</span>
-						<span class="col-metric">SI%</span>
-						<span class="col-metric">BR%</span>
-						<span class="col-metric">DTC</span>
+						<span class="col-metric">공매도</span>
+						<span class="col-metric">대차</span>
+						<span class="col-metric">커버일</span>
 						<span class="col-score">점수</span>
 					</div>
 					<div class="squeeze-list">
@@ -584,7 +584,7 @@
 									{#if item.dilution_protected}<span class="mini-badge dp">DP</span>{/if}
 								</span>
 								<span class="squeeze-metric">{item.short_interest ? item.short_interest.toFixed(0) : '-'}</span>
-								<span class="squeeze-metric">{item.zero_borrow ? '-' : (item.borrow_rate ? item.borrow_rate.toFixed(0) : '-')}</span>
+								<span class="squeeze-metric">{item.zero_borrow ? '불가' : (item.borrow_rate ? item.borrow_rate.toFixed(0) : '-')}</span>
 								<span class="squeeze-metric">{item.days_to_cover ? item.days_to_cover.toFixed(1) : '-'}</span>
 								<span class="squeeze-score-cell {item.rating.toLowerCase()}">{item.combined_score.toFixed(0)}</span>
 							</a>

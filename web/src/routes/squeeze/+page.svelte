@@ -147,13 +147,13 @@
 
 	<!-- Legend -->
 	<div class="legend">
-		<div class="legend-item"><span class="dot si"></span> SI: Short Interest %</div>
-		<div class="legend-item"><span class="dot br"></span> BR: Borrow Rate %</div>
-		<div class="legend-item"><span class="dot dtc"></span> DTC: Days to Cover</div>
-		<div class="legend-item"><span class="dot zb"></span> ZB: Zero Borrow</div>
-		<div class="legend-item"><span class="dot dp"></span> DP: Dilution Protected</div>
-		<div class="legend-item"><span class="dot pn"></span> PN: Positive News</div>
-		<div class="legend-item"><span class="dot nn"></span> NN: Negative News</div>
+		<div class="legend-item"><span class="dot si"></span> SI: 공매도 비율</div>
+		<div class="legend-item"><span class="dot br"></span> BR: 대차이자</div>
+		<div class="legend-item"><span class="dot dtc"></span> DTC: 커버 소요일</div>
+		<div class="legend-item"><span class="dot zb"></span> ZB: 대차불가</div>
+		<div class="legend-item"><span class="dot dp"></span> DP: 희석방어</div>
+		<div class="legend-item"><span class="dot pn"></span> PN: 호재</div>
+		<div class="legend-item"><span class="dot nn"></span> NN: 악재</div>
 	</div>
 
 	{#if isLoading}
@@ -201,10 +201,10 @@
 									{item.short_interest ? item.short_interest.toFixed(1) + '%' : '-'}
 								</span>
 							</div>
-							<div class="metric" title="Borrow Rate %">
+							<div class="metric" title="대차이자">
 								<span class="label">BR</span>
-								<span class="value" class:extreme={item.borrow_rate && item.borrow_rate >= 999 && !item.zero_borrow}>
-									{item.zero_borrow ? '-' : (item.borrow_rate ? item.borrow_rate.toFixed(0) + '%' : '-')}
+								<span class="value" class:extreme={item.zero_borrow} class:high={!item.zero_borrow && item.borrow_rate && item.borrow_rate >= 50}>
+									{item.zero_borrow ? '불가' : (item.borrow_rate ? item.borrow_rate.toFixed(0) + '%' : '-')}
 								</span>
 							</div>
 							<div class="metric" title="Days to Cover">
