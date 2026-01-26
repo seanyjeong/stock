@@ -54,12 +54,12 @@ def generate_recommendation(result: dict) -> str:
 """
 
     if result['category'] == 'day_trade':
+        if result.get('signal_tags'):
+            prompt += f"추천 사유: {', '.join(result['signal_tags'])}\n"
         prompt += f"""RSI: {result.get('rsi', 'N/A')}
 거래량 급증: {result.get('volume_ratio', 1)}배
 뉴스 점수: {result.get('news_score', 0)}
 """
-        if result.get('squeeze_signals'):
-            prompt += f"숏스퀴즈 신호: {', '.join(result['squeeze_signals'])}\n"
 
     elif result['category'] == 'swing':
         prompt += f"""RSI: {result.get('rsi', 'N/A')}

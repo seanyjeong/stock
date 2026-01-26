@@ -27,6 +27,7 @@
 		rating?: string;
 		rr_ratio?: number;
 		split_entries?: SplitEntry[];
+		signal_tags?: string[];
 	}
 
 	interface Props {
@@ -144,6 +145,14 @@
 
 					{#if rec.company_name}
 						<p class="company-name">{rec.company_name}</p>
+					{/if}
+
+					{#if rec.signal_tags && rec.signal_tags.length > 0}
+						<div class="signal-tags">
+							{#each rec.signal_tags as tag}
+								<span class="signal-tag">{tag}</span>
+							{/each}
+						</div>
 					{/if}
 
 					{#if rec.recommendation_reason}
@@ -389,6 +398,22 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.signal-tags {
+		display: flex;
+		gap: 0.3rem;
+		flex-wrap: wrap;
+		margin-bottom: 0.5rem;
+	}
+
+	.signal-tag {
+		font-size: 0.65rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 6px;
+		background: rgba(63, 185, 80, 0.15);
+		color: #3fb950;
+		font-weight: 600;
 	}
 
 	.rec-prices {

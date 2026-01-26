@@ -1,7 +1,7 @@
 """
 scanners/day_scanner.py - 단타 스캐너
 
-뉴스 핫 종목 + 소형주 대상, 숏스퀴즈 지표 포함
+뉴스 핫 종목 + 소형주 대상
 
 점수 체계 (0-100):
 | 항목          | max | 기준                              |
@@ -10,8 +10,9 @@ scanners/day_scanner.py - 단타 스캐너
 | RSI 반등      | 20  | 30-45=20, 25-30=15, 45-60=10      |
 | MACD 크로스   | 15  | 골든=15, 양수전환=10, 시그널위=5    |
 | ATR 변동성    | 10  | 3-8%=10, 2-3%=7, >8%=3           |
-| 뉴스          | 5   | >10점=5, >5점=3, >0점=1           |
-| 숏스퀴즈      | 25  | SI+RegSHO+ZB+FTD (cap 25)        |
+| 뉴스 촉매     | 15  | >10점=15, >5점=10, >0점=5          |
+| 모멘텀        | 5   | 전일대비 갭업/연속상승               |
+| 숏스퀴즈 보너스| 10  | SI+RegSHO+ZB+FTD (cap 10)        |
 | 합계          | 100 |                                   |
 """
 
@@ -89,7 +90,7 @@ def _calculate_support_resistance(hist: pd.DataFrame) -> tuple:
 
 
 def analyze(ticker: str, news_score: float) -> Optional[dict]:
-    """단타 종목 분석 (숏스퀴즈 지표 포함)
+    """단타 종목 분석
 
     Returns:
         분석 결과 dict 또는 None (필터 통과 못 하면)
@@ -128,7 +129,20 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         vol_today = hist['Volume'].iloc[-1]
         volume_ratio = float(vol_today / vol_avg) if vol_avg > 0 else 1.0
 
-        # ========== 숏스퀴즈 지표 (lib/ 연동) ==========
+        # 모멘텀 체크 (전일 대비 갭/연속 상승)
+        prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current_price
+        day_change_pct = ((current_price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+        # 최근 3일 연속 상승 체크
+        recent_closes = hist['Close'].tail(4)
+        consecutive_up = 0
+        if len(recent_closes) >= 4:
+            for i in range(1, len(recent_closes)):
+                if float(recent_closes.iloc[i]) > float(recent_closes.iloc[i-1]):
+                    consecutive_up += 1
+                else:
+                    consecutive_up = 0
+
+        # ========== 숏스퀴즈 보너스 (cap 10) ==========
         squeeze_score = 0
         squeeze_signals = []
 
@@ -137,82 +151,69 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             short_data = get_short_history(ticker)
             short_float = info.get('shortPercentOfFloat', 0) or 0
             if short_float > 0.20:
-                squeeze_score += 10
+                squeeze_score += 5
                 squeeze_signals.append(f"SI {short_float*100:.1f}%")
             elif short_float > 0.10:
-                squeeze_score += 5
+                squeeze_score += 3
                 squeeze_signals.append(f"SI {short_float*100:.1f}%")
-
-            # SI 급증 체크
-            if short_data.get('change_30d'):
-                change = short_data['change_30d']
-                if isinstance(change, str) and '+' in change:
-                    pct = float(change.replace('%', '').replace('+', ''))
-                    if pct > 50:
-                        squeeze_score += 5
-                        squeeze_signals.append("SI 급증")
         except Exception:
             pass
 
-        # 2. FTD
-        try:
-            ftd = get_ftd_data(ticker)
-            if ftd.get('total_ftd', 0) > 100000:
-                squeeze_score += 5
-                squeeze_signals.append(f"FTD {ftd['total_ftd']/1e6:.1f}M")
-        except Exception:
-            pass
-
-        # 3. RegSHO (대박 신호!)
+        # 2. RegSHO or Zero Borrow (강한 신호만)
         try:
             regsho = check_regsho(ticker)
             if regsho.get("listed"):
-                squeeze_score += 10
+                squeeze_score += 5
                 squeeze_signals.append("RegSHO")
         except Exception:
             pass
 
-        # 4. Borrow Rate
         try:
             borrow = get_borrow_data(ticker)
             if borrow.get('is_zero_borrow'):
-                squeeze_score += 10
-                squeeze_signals.append("Zero Borrow")
-            elif borrow.get('borrow_rate') and borrow['borrow_rate'] > 50:
                 squeeze_score += 5
-                squeeze_signals.append(f"Borrow {borrow['borrow_rate']:.0f}%")
+                squeeze_signals.append("ZB")
         except Exception:
             pass
 
-        # cap 25
-        squeeze_score = min(squeeze_score, 25)
+        # cap 10
+        squeeze_score = min(squeeze_score, 10)
 
         # ========== 단타 점수 계산 (0-100) ==========
         score = 0.0
+        signal_tags = []  # 추천 사유 태그
 
         # 1. 거래량 급증 (max 25)
         if volume_ratio > 5:
             score += 25
+            signal_tags.append(f"거래량 {volume_ratio:.0f}배↑")
         elif volume_ratio > 3:
             score += 20
+            signal_tags.append(f"거래량 {volume_ratio:.0f}배↑")
         elif volume_ratio > 2:
             score += 15
+            signal_tags.append(f"거래량 {volume_ratio:.1f}배↑")
         elif volume_ratio > 1.5:
             score += 10
+            signal_tags.append(f"거래량 {volume_ratio:.1f}배↑")
 
         # 2. RSI 반등 (max 20)
         if 30 <= rsi <= 45:
             score += 20
+            signal_tags.append("RSI 반등")
         elif 25 <= rsi < 30:
             score += 15
+            signal_tags.append("RSI 과매도")
         elif 45 < rsi <= 60:
             score += 10
 
         # 3. MACD 크로스 (max 15)
         if macd_cross == 'golden':
             score += 15
+            signal_tags.append("골든크로스")
         elif macd_val > signal_val and macd_val > 0:
             score += 10
+            signal_tags.append("MACD 양전환")
         elif macd_val > signal_val:
             score += 5
 
@@ -225,23 +226,37 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         elif atr_pct > 8:
             score += 3
 
-        # 5. 뉴스 (max 5)
+        # 5. 뉴스 촉매 (max 15)
         if news_score > 10:
-            score += 5
+            score += 15
+            signal_tags.append("뉴스 촉매")
         elif news_score > 5:
-            score += 3
+            score += 10
+            signal_tags.append("뉴스 촉매")
         elif news_score > 0:
-            score += 1
+            score += 5
 
-        # 6. 숏스퀴즈 (max 25, already capped)
-        score += squeeze_score
+        # 6. 모멘텀 (max 5)
+        if day_change_pct > 5:
+            score += 5
+            signal_tags.append(f"갭업 +{day_change_pct:.1f}%")
+        elif consecutive_up >= 3:
+            score += 5
+            signal_tags.append("3일 연속↑")
+        elif day_change_pct > 2:
+            score += 3
+
+        # 7. 숏스퀴즈 보너스 (max 10, already capped)
+        if squeeze_score > 0:
+            score += squeeze_score
+            signal_tags.append("스퀴즈")
 
         if score < 30:
             return None
 
         support, resistance = _calculate_support_resistance(hist)
 
-        return {
+        result = {
             'ticker': ticker,
             'category': 'day_trade',
             'company_name': info.get('shortName', ticker),
@@ -254,14 +269,20 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'macd_cross': macd_cross,
             'volume_ratio': round(volume_ratio, 2),
             'news_score': news_score,
-            'squeeze_score': squeeze_score,
-            'squeeze_signals': squeeze_signals,
+            'signal_tags': signal_tags,
             'recommended_entry': round(current_price * 0.98, 2),
             'stop_loss': round(current_price - (atr * 1.5), 2),
             'target': round(current_price * 1.08, 2),
             'support': round(support, 2),
             'resistance': round(resistance, 2),
         }
+
+        # 스퀴즈 정보는 있을 때만 포함
+        if squeeze_score > 0:
+            result['squeeze_score'] = squeeze_score
+            result['squeeze_signals'] = squeeze_signals
+
+        return result
 
     except Exception as e:
         print(f"  단타 {ticker}: {e}")

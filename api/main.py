@@ -451,11 +451,12 @@ async def get_recommendations(authorization: str = Header(None)):
                             "rr_ratio": item.get("rr_ratio", 0),
                             "split_entries": item.get("split_entries", [])
                         }
-                        # 단타: 숏스퀴즈 데이터
+                        # 단타: 모멘텀 + 스퀴즈 데이터
                         if category == "day_trade":
+                            pick["signal_tags"] = item.get("signal_tags", [])
+                            pick["volume_ratio"] = item.get("volume_ratio", 0)
                             pick["squeeze_score"] = item.get("squeeze_score", 0)
                             pick["squeeze_signals"] = item.get("squeeze_signals", [])
-                            pick["volume_ratio"] = item.get("volume_ratio", 0)
                         # 스윙: 촉매 데이터
                         elif category == "swing":
                             pick["catalyst_score"] = item.get("catalyst_score", 0)
