@@ -245,6 +245,8 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'ticker': ticker,
             'category': 'day_trade',
             'company_name': info.get('shortName', ticker),
+            'sector': info.get('sector', ''),
+            'industry': info.get('industry', ''),
             'current_price': round(current_price, 2),
             'market_cap': market_cap,
             'score': round(min(score, 100), 1),
