@@ -1115,6 +1115,11 @@
 		font-weight: 700;
 	}
 
+	.squeeze-score.squeeze {
+		background: rgba(168, 85, 247, 0.3);
+		color: #a855f7;
+	}
+
 	.squeeze-score.hot {
 		background: rgba(248, 81, 73, 0.3);
 		color: #ff6b6b;
@@ -1401,6 +1406,11 @@
 		font-size: 0.8rem;
 		padding: 0.2rem 0.4rem;
 		border-radius: 4px;
+	}
+
+	.squeeze-score-cell.squeeze {
+		background: rgba(168, 85, 247, 0.3);
+		color: #a855f7;
 	}
 
 	.squeeze-score-cell.hot {
