@@ -62,6 +62,12 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 
+	// Handle page navigations (network first - always fresh data)
+	if (request.mode === 'navigate') {
+		event.respondWith(networkFirst(request));
+		return;
+	}
+
 	// Handle static assets (cache first)
 	if (url.origin === self.location.origin) {
 		event.respondWith(cacheFirst(request));
