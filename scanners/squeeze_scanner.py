@@ -482,10 +482,10 @@ def save_to_db(data_list: list[dict]):
                 available_shares, float_shares, dilution_protected,
                 squeeze_score, source, collected_at,
                 has_positive_news, has_negative_news, short_volume,
-                market_cap, price_change_5d, vol_ratio
+                market_cap, price_change_5d, vol_ratio, zero_borrow
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, 0,
-                %s, %s, %s
+                %s, %s, %s, %s
             )
             ON CONFLICT (ticker) DO UPDATE SET
                 borrow_rate = EXCLUDED.borrow_rate,
@@ -501,6 +501,7 @@ def save_to_db(data_list: list[dict]):
                 market_cap = EXCLUDED.market_cap,
                 price_change_5d = EXCLUDED.price_change_5d,
                 vol_ratio = EXCLUDED.vol_ratio,
+                zero_borrow = EXCLUDED.zero_borrow,
                 collected_at = NOW()
         """, (
             data["ticker"],
@@ -517,6 +518,7 @@ def save_to_db(data_list: list[dict]):
             data.get("market_cap"),
             data.get("price_change_5d"),
             data.get("vol_ratio"),
+            data.get("zero_borrow", False),
         ))
 
     conn.commit()

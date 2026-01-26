@@ -16,6 +16,7 @@
 	let regshoAlerts = $state(true);
 	let blogAlerts = $state(true);
 	let recommendationAlerts = $state(true);
+	let versionAlerts = $state(true);
 	let isSaving = $state(false);
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
@@ -82,6 +83,7 @@
 				regshoAlerts = data.regsho_alerts;
 				blogAlerts = data.blog_alerts;
 				recommendationAlerts = data.recommendation_alerts ?? true;
+				versionAlerts = data.version_alerts ?? true;
 			}
 		} catch (e) {
 			console.error('Failed to load settings:', e);
@@ -186,6 +188,7 @@
 					regsho_alerts: regshoAlerts,
 					blog_alerts: blogAlerts,
 					recommendation_alerts: recommendationAlerts,
+					version_alerts: versionAlerts,
 				}),
 			});
 
@@ -295,6 +298,14 @@
 							<span class="toggle-desc">새 단타/스윙/장기 추천 종목 등록 시 알림</span>
 						</div>
 						<input type="checkbox" bind:checked={recommendationAlerts} onchange={saveSettings} />
+					</label>
+
+					<label class="toggle-item">
+						<div class="toggle-info">
+							<span class="toggle-label">업데이트 알림</span>
+							<span class="toggle-desc">새 버전 업데이트 시 알림</span>
+						</div>
+						<input type="checkbox" bind:checked={versionAlerts} onchange={saveSettings} />
 					</label>
 
 					{#if isAdmin}

@@ -31,6 +31,7 @@ class NotificationSettings(BaseModel):
     regsho_alerts: bool = True
     blog_alerts: bool = True
     recommendation_alerts: bool = True  # 추천 종목 알림
+    version_alerts: bool = True  # 버전 업데이트 알림
 
 
 _table_initialized = False
@@ -68,6 +69,7 @@ def ensure_notifications_table():
                 regsho_alerts BOOLEAN DEFAULT TRUE,
                 blog_alerts BOOLEAN DEFAULT TRUE,
                 recommendation_alerts BOOLEAN DEFAULT TRUE,
+                version_alerts BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id)
             )
@@ -160,7 +162,8 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
     try:
         cur.execute("""
             SELECT price_alerts, regsho_alerts, blog_alerts,
-                   COALESCE(recommendation_alerts, TRUE) as recommendation_alerts
+                   COALESCE(recommendation_alerts, TRUE) as recommendation_alerts,
+                   COALESCE(version_alerts, TRUE) as version_alerts
             FROM notification_settings
             WHERE user_id = %s
         """, (user["id"],))
@@ -173,7 +176,8 @@ async def get_notification_settings(user: dict = Depends(get_current_user)):
                 "price_alerts": True,
                 "regsho_alerts": True,
                 "blog_alerts": True,
-                "recommendation_alerts": True
+                "recommendation_alerts": True,
+                "version_alerts": True
             }
 
         return result
@@ -191,16 +195,17 @@ async def update_notification_settings(settings: NotificationSettings, user: dic
 
     try:
         cur.execute("""
-            INSERT INTO notification_settings (user_id, price_alerts, regsho_alerts, blog_alerts, recommendation_alerts)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO notification_settings (user_id, price_alerts, regsho_alerts, blog_alerts, recommendation_alerts, version_alerts)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET
                 price_alerts = EXCLUDED.price_alerts,
                 regsho_alerts = EXCLUDED.regsho_alerts,
                 blog_alerts = EXCLUDED.blog_alerts,
                 recommendation_alerts = EXCLUDED.recommendation_alerts,
+                version_alerts = EXCLUDED.version_alerts,
                 updated_at = CURRENT_TIMESTAMP
-            RETURNING price_alerts, regsho_alerts, blog_alerts, recommendation_alerts
-        """, (user["id"], settings.price_alerts, settings.regsho_alerts, settings.blog_alerts, settings.recommendation_alerts))
+            RETURNING price_alerts, regsho_alerts, blog_alerts, recommendation_alerts, version_alerts
+        """, (user["id"], settings.price_alerts, settings.regsho_alerts, settings.blog_alerts, settings.recommendation_alerts, settings.version_alerts))
 
         result = cur.fetchone()
         conn.commit()
@@ -348,3 +353,59 @@ async def trigger_recommendation_notification(rec_type: str = "day_trade", count
     # TODO: 내부 호출 인증 추가 필요
     result = send_recommendation_notification(rec_type, count)
     return result
+
+
+def send_version_notification(new_version: str):
+    """버전 업데이트 알림 발송
+
+    Args:
+        new_version: 새 버전 문자열 (예: "2.11.0")
+    """
+    ensure_notifications_table()
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        # version_alerts가 켜진 사용자의 구독 정보 조회
+        cur.execute("""
+            SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+            FROM push_subscriptions ps
+            JOIN notification_settings ns ON ps.user_id = ns.user_id
+            WHERE COALESCE(ns.version_alerts, TRUE) = TRUE
+        """)
+        subscriptions = cur.fetchall()
+
+        # 설정이 없는 사용자도 기본값(TRUE)으로 알림 발송
+        cur.execute("""
+            SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth
+            FROM push_subscriptions ps
+            WHERE NOT EXISTS (
+                SELECT 1 FROM notification_settings ns WHERE ns.user_id = ps.user_id
+            )
+        """)
+        subscriptions.extend(cur.fetchall())
+
+        sent = 0
+        expired = []
+
+        for sub in subscriptions:
+            result = send_push_notification(
+                sub,
+                "달러농장 업데이트",
+                f"v{new_version}으로 업데이트되었습니다!",
+                "/settings"
+            )
+            if result is True:
+                sent += 1
+            elif result == "expired":
+                expired.append(sub["id"])
+
+        # 만료된 구독 삭제
+        if expired:
+            cur.execute("DELETE FROM push_subscriptions WHERE id = ANY(%s)", (expired,))
+            conn.commit()
+
+        return {"sent": sent, "expired": len(expired)}
+    finally:
+        cur.close()
+        conn.close()

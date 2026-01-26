@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 # .env 파일 로드 (프로젝트 루트)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
+import json
 import logging
 import traceback
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Header
@@ -34,10 +36,85 @@ from api.glossary import router as glossary_router
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _get_current_version() -> str:
+    """web/package.json에서 현재 버전 읽기"""
+    try:
+        pkg_path = os.path.join(PROJECT_ROOT, "web", "package.json")
+        with open(pkg_path) as f:
+            return json.load(f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
+def _check_version_and_notify():
+    """버전 변경 시 푸시 알림 발송"""
+    try:
+        current_version = _get_current_version()
+        if current_version == "0.0.0":
+            return
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        # app_config 테이블 확인/생성
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS app_config (
+                key VARCHAR(100) PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+        # 마지막 알림 버전 조회
+        cur.execute("SELECT value FROM app_config WHERE key = 'last_notified_version'")
+        row = cur.fetchone()
+        last_version = row[0] if row else None
+
+        if last_version != current_version:
+            logger.info(f"Version changed: {last_version} → {current_version}")
+
+            # 버전 업데이트 기록
+            cur.execute("""
+                INSERT INTO app_config (key, value, updated_at)
+                VALUES ('last_notified_version', %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (current_version,))
+            conn.commit()
+
+            # 푸시 알림 발송 (최초 실행 시에는 스킵)
+            if last_version is not None:
+                from api.notifications import send_version_notification
+                result = send_version_notification(current_version)
+                logger.info(f"Version notification sent: {result}")
+            else:
+                logger.info(f"First run, skipping version notification (v{current_version})")
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Version check failed: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """API 시작/종료 이벤트"""
+    logger.info(f"Starting Daily Stock Story API v{_get_current_version()}")
+    _check_version_and_notify()
+    yield
+    logger.info("Shutting down API")
+
+
 app = FastAPI(
     title="Daily Stock Story API",
     description="Stock briefing, portfolio tracking, and scanner API",
-    version="0.1.0",
+    version=_get_current_version(),
+    lifespan=lifespan,
 )
 
 # CORS middleware for frontend access
@@ -668,6 +745,7 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
                 s.market_cap,
                 s.price_change_5d,
                 s.vol_ratio,
+                COALESCE(s.zero_borrow, FALSE) as zero_borrow,
                 t.company_name,
                 r.days_on_list
             FROM squeeze_data s
@@ -727,8 +805,8 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
             else:
                 rating = "COLD"
 
-            # Zero Borrow 판정
-            is_zero_borrow = row["borrow_rate"] and float(row["borrow_rate"]) >= 999
+            # Zero Borrow: DB에 저장된 값 사용
+            is_zero_borrow = bool(row.get("zero_borrow", False))
 
             # 시가총액 티어
             market_cap = int(row["market_cap"]) if row["market_cap"] else None
