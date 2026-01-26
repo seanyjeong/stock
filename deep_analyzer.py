@@ -23,15 +23,8 @@ Usage:
 
 import sys
 import os
-import json
-import re
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 import yfinance as yf
-import requests
-from bs4 import BeautifulSoup
-import psycopg2
-import pandas as pd
 
 # Gemini API (새 SDK)
 from google import genai
@@ -44,54 +37,38 @@ except:
     translator = None
 
 # ============================================================
-# 설정
+# lib/ 패키지에서 공통 수집 함수 import
 # ============================================================
+from lib import (
+    check_regsho, fetch_historical_regsho,
+    get_borrow_data, get_fintel_data,
+    get_sec_info, get_ftd_data, get_sec_filings, parse_8k_content,
+    get_social_sentiment,
+    get_news, search_recent_news, get_sector_news, get_finviz_news,
+    get_biotech_news, get_tech_news, get_energy_news,
+    get_automotive_news, get_retail_news, get_consumer_news,
+    get_financial_news, get_industrial_news, get_realestate_news,
+    get_technicals, get_fibonacci_levels, get_volume_profile,
+    get_options_data,
+    get_darkpool_data,
+    get_officers, get_insider_transactions, get_institutional_holders,
+    get_institutional_changes, get_peer_comparison, get_short_history,
+    get_catalyst_calendar, get_biotech_catalysts, get_automotive_catalysts,
+    get_retail_catalysts, get_financial_catalysts, get_industrial_catalysts,
+    get_realestate_catalysts,
+)
+from lib.base import get_db, DB_CONFIG, HEADERS, fmt_num, fmt_pct
 
-DB_CONFIG = {
-    "host": "localhost",
-    "database": "dailystock",
-    "user": "dailystock",
-    "password": "dailystock123",
-    "port": 5432
-}
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
-}
-
-# Gemini 설정 (새 SDK) - 환경변수에서만 로드!
+# ============================================================
+# Gemini 설정
+# ============================================================
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
-def get_db():
-    try:
-        return psycopg2.connect(**DB_CONFIG)
-    except:
-        return None
-
-
-def fmt_num(n, prefix="", suffix=""):
-    """숫자 포맷팅"""
-    if n is None:
-        return "N/A"
-    if abs(n) >= 1e12:
-        return f"{prefix}{n/1e12:.2f}T{suffix}"
-    if abs(n) >= 1e9:
-        return f"{prefix}{n/1e9:.2f}B{suffix}"
-    if abs(n) >= 1e6:
-        return f"{prefix}{n/1e6:.2f}M{suffix}"
-    if abs(n) >= 1e3:
-        return f"{prefix}{n/1e3:.1f}K{suffix}"
-    return f"{prefix}{n:,.0f}{suffix}"
-
-
-def fmt_pct(n, decimals=2):
-    """퍼센트 포맷팅"""
-    if n is None:
-        return "N/A"
-    return f"{n*100:.{decimals}f}%" if abs(n) < 1 else f"{n:.{decimals}f}%"
-
+# ============================================================
+# 출력 유틸리티 (deep_analyzer 전용)
+# ============================================================
 
 def section(title: str, emoji: str = "📊"):
     """섹션 헤더"""
@@ -176,2266 +153,10 @@ def get_basic_info(ticker: str) -> dict:
 
 
 # ============================================================
-# 2. Zero Borrow & Borrow Rate (Playwright + 다중 소스)
+# 숏스퀴즈 점수 계산 (v3 - Zero Borrow 반영)
 # ============================================================
 
-def get_borrow_data_playwright(ticker: str) -> dict:
-    """Playwright로 Chartexchange에서 Borrow Rate 정확하게 수집"""
-    try:
-        from playwright.sync_api import sync_playwright
-        from playwright_stealth import Stealth
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            )
-            # Stealth 적용
-            stealth = Stealth()
-            stealth.apply_stealth_sync(context)
-            page = context.new_page()
-
-            result = {
-                "is_zero_borrow": None,
-                "is_hard_to_borrow": None,
-                "borrow_rate": None,
-                "available_shares": None,
-                "short_interest_shares": None,
-                "avg_volume": None,
-                "days_to_cover": None,
-                "si_date": None,
-                "source": None
-            }
-
-            # 1. Chartexchange 시도 (Short Interest 페이지)
-            try:
-                url = f"https://chartexchange.com/symbol/nasdaq-{ticker.lower()}/short-interest/"
-                page.goto(url, timeout=20000)
-                page.wait_for_load_state("networkidle", timeout=15000)
-
-                content = page.content().lower()
-
-                # Borrow Fee Rate 추출 (다양한 패턴)
-                # "borrow fee" 또는 "fee rate" 근처의 숫자%
-                borrow_patterns = [
-                    r'borrow\s*fee[:\s]*(\d+\.?\d*)%',
-                    r'fee\s*rate[:\s]*(\d+\.?\d*)%',
-                    r'cost\s*to\s*borrow[:\s]*(\d+\.?\d*)%',
-                    r'ctb[:\s]*(\d+\.?\d*)%',
-                    r'(\d+\.?\d*)%\s*(?:borrow|fee|ctb)',
-                ]
-
-                for pattern in borrow_patterns:
-                    match = re.search(pattern, content)
-                    if match:
-                        rate = float(match.group(1))
-                        if rate > 0:  # 유효한 값만
-                            result["borrow_rate"] = rate
-                            result["source"] = "Chartexchange"
-                            break
-
-                # Short Interest % 추출
-                si_patterns = [
-                    r'short\s*interest[:\s]*(\d+\.?\d*)%',
-                    r'si[:\s]*(\d+\.?\d*)%',
-                    r'(\d+\.?\d*)%\s*of\s*float',
-                ]
-                for pattern in si_patterns:
-                    match = re.search(pattern, content)
-                    if match:
-                        result["short_float_percent"] = float(match.group(1))
-                        break
-
-                # Zero/Hard to Borrow 감지
-                result["is_zero_borrow"] = "zero borrow" in content or "no shares" in content
-                result["is_hard_to_borrow"] = "hard to borrow" in content or "htb" in content
-
-                if result["is_zero_borrow"]:
-                    result["borrow_rate"] = 999.0
-                    result["available_shares"] = 0
-
-            except Exception:
-                pass
-
-            # 2. Shortablestocks 시도 (데이터가 더 정확함)
-            if result["borrow_rate"] is None:
-                try:
-                    url = f"https://www.shortablestocks.com/?{ticker}"
-                    page.goto(url, timeout=20000)
-                    page.wait_for_selector("#borrowdata", timeout=10000)
-                    page.wait_for_timeout(3000)  # 데이터 로딩 대기
-
-                    # borrowdata div에서 텍스트 추출
-                    borrow_div = page.query_selector("#borrowdata")
-                    if borrow_div:
-                        borrow_text = borrow_div.inner_text()
-
-                        # 테이블 형식: Fee | Rebate | Available | Updated
-                        # 예: 116.97%	-113.34%	1000	2026-01-23 17:36:46
-                        lines = borrow_text.split('\n')
-                        for line in lines:
-                            # 숫자%로 시작하는 라인 찾기 (테이블 데이터 행)
-                            match = re.match(r'(\d+\.?\d*)%\s+(-?\d+\.?\d*)%\s+(\d+)', line.strip())
-                            if match:
-                                result["borrow_rate"] = float(match.group(1))
-                                result["available_shares"] = int(match.group(3))
-                                result["source"] = "shortablestocks.com"
-                                break
-
-                    content = page.content().lower()
-
-                    # Zero Borrow
-                    if "zero borrow" in content:
-                        result["is_zero_borrow"] = True
-                        result["borrow_rate"] = 999.0
-                        result["available_shares"] = 0
-
-                    if "hard to borrow" in content:
-                        result["is_hard_to_borrow"] = True
-
-                    # Hard to borrow 기준: 100% 이상이면 HTB
-                    if result["borrow_rate"] and result["borrow_rate"] >= 100:
-                        result["is_hard_to_borrow"] = True
-
-                except Exception:
-                    pass
-
-            browser.close()
-            return result
-
-    except Exception as e:
-        print(f"  ⚠️ Playwright Borrow 수집 실패: {e}")
-        return {
-            "is_zero_borrow": None,
-            "is_hard_to_borrow": None,
-            "borrow_rate": None,
-            "available_shares": None,
-            "short_interest_shares": None,
-            "avg_volume": None,
-            "days_to_cover": None,
-            "si_date": None,
-            "source": None
-        }
-
-
-def get_borrow_data(ticker: str) -> dict:
-    """Borrow Rate 수집 (Playwright 우선, requests fallback)"""
-
-    # 1. Playwright로 정확한 데이터 시도
-    result = get_borrow_data_playwright(ticker)
-
-    # Playwright 성공 시 반환
-    if result.get("borrow_rate") is not None or result.get("is_zero_borrow"):
-        return result
-
-    # 2. Fallback: requests로 기본 데이터 수집
-    url = f"https://www.shortablestocks.com/?{ticker}"
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        text = resp.text
-
-        # Zero Borrow 감지 (가장 중요!)
-        is_zero_borrow = "zero borrow" in text.lower()
-
-        # Hard to Borrow 감지
-        is_hard_to_borrow = "hard to borrow" in text.lower()
-
-        # Short Interest 데이터 추출 (패턴: 날짜 숫자 숫자 숫자)
-        si_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})\s+([\d,]+)\s+([\d,]+)\s+(\d+)', text)
-
-        short_interest_shares = None
-        avg_volume = None
-        days_to_cover = None
-        si_date = None
-
-        if si_match:
-            si_date = si_match.group(1)
-            short_interest_shares = int(si_match.group(2).replace(',', ''))
-            avg_volume = int(si_match.group(3).replace(',', ''))
-            days_to_cover = int(si_match.group(4))
-
-        # Borrow Rate - requests로는 JS 데이터 못 가져옴
-        borrow_rate = None
-        available_shares = None
-
-        # Zero Borrow면 극단적 설정
-        if is_zero_borrow:
-            borrow_rate = 999.0
-            available_shares = 0
-
-        return {
-            "is_zero_borrow": is_zero_borrow,
-            "is_hard_to_borrow": is_hard_to_borrow,
-            "borrow_rate": borrow_rate,
-            "available_shares": available_shares,
-            "short_interest_shares": short_interest_shares,
-            "avg_volume": avg_volume,
-            "days_to_cover": days_to_cover,
-            "si_date": si_date,
-            "source": "shortablestocks.com (limited)"
-        }
-
-    except Exception as e:
-        print(f"  ⚠️ Borrow 데이터 수집 실패: {e}")
-        return {
-            "is_zero_borrow": None,
-            "is_hard_to_borrow": None,
-            "borrow_rate": None,
-            "available_shares": None,
-            "short_interest_shares": None,
-            "avg_volume": None,
-            "days_to_cover": None,
-            "si_date": None,
-            "source": None
-        }
-
-
-# ============================================================
-# 3. Fintel 스퀴즈 스코어 (웹 스크래핑)
-# ============================================================
-
-def get_fintel_data(ticker: str) -> dict:
-    """Fintel에서 추가 데이터 시도"""
-    url = f"https://fintel.io/ss/us/{ticker.lower()}"
-
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        text = resp.text
-
-        # Short Squeeze Score 찾기
-        score_match = re.search(r'short\s*squeeze\s*score[:\s]*(\d+\.?\d*)', text.lower())
-        squeeze_score = float(score_match.group(1)) if score_match else None
-
-        return {
-            "fintel_squeeze_score": squeeze_score,
-            "source": "fintel.io"
-        }
-    except:
-        return {"fintel_squeeze_score": None, "source": None}
-
-
-# ============================================================
-# 3.5 SEC EDGAR 희석/빚/covenant 정보
-# ============================================================
-
-def get_sec_info(ticker: str) -> dict:
-    """SEC EDGAR Full-Text Search로 워런트/희석/빚/covenant 정보 수집"""
-
-    sec_info = {
-        "warrant_mentions": 0,
-        "dilution_mentions": 0,
-        "covenant_mentions": 0,
-        "debt_mentions": 0,
-        "lockup_mentions": 0,
-        "offering_mentions": 0,  # S-3, 424B 등
-        "positive_news": 0,
-        "negative_news": 0,
-        # 해석
-        "has_warrant_risk": False,
-        "has_debt_covenant": False,
-        "dilution_risk": False,
-        "has_lockup": False,
-        "has_offering_risk": False,
-        "has_positive_news": False,
-        "has_negative_news": False,
-    }
-
-    headers = {"User-Agent": "DailyStockStory/1.0 (contact@example.com)"}
-
-    try:
-        # 키워드 검색 (2024년 이후)
-        keywords = [
-            ("warrant", "warrant_mentions"),
-            ("dilution", "dilution_mentions"),
-            ("covenant", "covenant_mentions"),
-            ("debt", "debt_mentions"),
-            ("lock-up OR lockup", "lockup_mentions"),
-            ("S-3 OR 424B", "offering_mentions"),
-        ]
-
-        for keyword, field in keywords:
-            search_url = f'https://efts.sec.gov/LATEST/search-index?q="{keyword}" AND "{ticker}"&dateRange=custom&startdt=2024-01-01'
-            try:
-                resp = requests.get(search_url, headers=headers, timeout=15)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    count = data.get("hits", {}).get("total", {}).get("value", 0)
-                    sec_info[field] = count
-            except:
-                pass
-
-        # 호재 키워드 (2025년)
-        positive_keywords = ["deal", "partnership", "contract", "agreement", "FDA approval"]
-        for pk in positive_keywords:
-            search_url = f'https://efts.sec.gov/LATEST/search-index?q="{pk}" AND "{ticker}"&dateRange=custom&startdt=2025-01-01'
-            try:
-                resp = requests.get(search_url, headers=headers, timeout=15)
-                if resp.status_code == 200:
-                    count = resp.json().get("hits", {}).get("total", {}).get("value", 0)
-                    sec_info["positive_news"] += count
-            except:
-                pass
-
-        # 악재 키워드 (2025년)
-        negative_keywords = ["lawsuit", "bankruptcy", "default", "fraud", "investigation", "delisting"]
-        for nk in negative_keywords:
-            search_url = f'https://efts.sec.gov/LATEST/search-index?q="{nk}" AND "{ticker}"&dateRange=custom&startdt=2025-01-01'
-            try:
-                resp = requests.get(search_url, headers=headers, timeout=15)
-                if resp.status_code == 200:
-                    count = resp.json().get("hits", {}).get("total", {}).get("value", 0)
-                    sec_info["negative_news"] += count
-            except:
-                pass
-
-        # 해석 (임계값)
-        sec_info["has_warrant_risk"] = sec_info["warrant_mentions"] > 10
-        sec_info["has_debt_covenant"] = sec_info["covenant_mentions"] > 3
-        sec_info["dilution_risk"] = sec_info["dilution_mentions"] > 5
-        sec_info["has_lockup"] = sec_info["lockup_mentions"] > 2
-        sec_info["has_offering_risk"] = sec_info["offering_mentions"] > 3
-        sec_info["has_positive_news"] = sec_info["positive_news"] > 50
-        sec_info["has_negative_news"] = sec_info["negative_news"] > 20
-
-    except Exception as e:
-        print(f"    ⚠️ SEC 검색 오류: {e}")
-
-    return sec_info
-
-
-# ============================================================
-# 3.6 FTD (Failure to Deliver) 데이터 - SEC
-# ============================================================
-
-def get_ftd_data(ticker: str) -> dict:
-    """SEC에서 FTD 데이터 수집 (최근 2개월)"""
-    ftd_info = {
-        "total_ftd": 0,
-        "recent_ftd": [],
-        "avg_ftd": 0,
-        "max_ftd": 0,
-        "ftd_trend": "unknown",  # increasing, decreasing, stable
-        "has_significant_ftd": False,
-    }
-
-    try:
-        # SEC FTD 파일 (최근 2개월)
-        from datetime import datetime
-        now = datetime.now()
-
-        # SEC FTD는 2주 delay로 발표됨
-        # 최근 파일 2개 시도
-        months_to_check = []
-        for i in range(3):
-            check_date = now - timedelta(days=30 * i)
-            months_to_check.append(check_date.strftime("%Y%m"))
-
-        all_ftd = []
-
-        for month in months_to_check[:2]:
-            # 첫번째 반 (1-15일)
-            url1 = f"https://www.sec.gov/files/data/fails-deliver-data/cnsfails{month}a.zip"
-            # 두번째 반 (16-말일)
-            url2 = f"https://www.sec.gov/files/data/fails-deliver-data/cnsfails{month}b.zip"
-
-            for url in [url1, url2]:
-                try:
-                    import io
-                    import zipfile
-
-                    resp = requests.get(url, headers={"User-Agent": "DailyStockStory/1.0"}, timeout=15)
-                    if resp.status_code == 200:
-                        with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-                            for filename in z.namelist():
-                                with z.open(filename) as f:
-                                    content = f.read().decode('utf-8', errors='ignore')
-                                    for line in content.split('\n'):
-                                        if ticker.upper() in line.upper():
-                                            parts = line.split('|')
-                                            if len(parts) >= 5:
-                                                try:
-                                                    date = parts[0]
-                                                    qty = int(parts[3]) if parts[3].isdigit() else 0
-                                                    if qty > 0:
-                                                        all_ftd.append({
-                                                            "date": date,
-                                                            "quantity": qty
-                                                        })
-                                                except:
-                                                    pass
-                except:
-                    pass
-
-        if all_ftd:
-            # 정렬 (최신순)
-            all_ftd.sort(key=lambda x: x['date'], reverse=True)
-            ftd_info["recent_ftd"] = all_ftd[:10]
-            ftd_info["total_ftd"] = sum(f['quantity'] for f in all_ftd)
-            ftd_info["avg_ftd"] = ftd_info["total_ftd"] // len(all_ftd) if all_ftd else 0
-            ftd_info["max_ftd"] = max(f['quantity'] for f in all_ftd)
-
-            # 트렌드 분석
-            if len(all_ftd) >= 4:
-                recent_avg = sum(f['quantity'] for f in all_ftd[:2]) / 2
-                older_avg = sum(f['quantity'] for f in all_ftd[2:4]) / 2
-                if recent_avg > older_avg * 1.5:
-                    ftd_info["ftd_trend"] = "increasing 📈"
-                elif recent_avg < older_avg * 0.5:
-                    ftd_info["ftd_trend"] = "decreasing 📉"
-                else:
-                    ftd_info["ftd_trend"] = "stable"
-
-            # 유의미한 FTD인지 (10만주 이상)
-            ftd_info["has_significant_ftd"] = ftd_info["max_ftd"] > 100000
-
-    except Exception as e:
-        print(f"    ⚠️ FTD 수집 오류: {e}")
-
-    return ftd_info
-
-
-# ============================================================
-# 3.7 옵션 체인 분석
-# ============================================================
-
-def get_options_data(stock) -> dict:
-    """옵션 체인 분석 (감마 스퀴즈 가능성)"""
-    options_info = {
-        "has_options": False,
-        "nearest_expiry": None,
-        "total_call_oi": 0,
-        "total_put_oi": 0,
-        "put_call_ratio": 0,
-        "max_pain": 0,
-        "gamma_exposure": [],
-        "itm_calls": 0,  # In-the-money 콜
-        "strikes_analysis": [],
-    }
-
-    try:
-        # 옵션 만기일 확인
-        expirations = stock.options
-        if not expirations:
-            return options_info
-
-        options_info["has_options"] = True
-        options_info["nearest_expiry"] = expirations[0]
-
-        # 현재가
-        current_price = stock.info.get('regularMarketPrice', 0) or stock.info.get('currentPrice', 0)
-
-        # 가장 가까운 만기 옵션 분석
-        opt = stock.option_chain(expirations[0])
-        calls = opt.calls
-        puts = opt.puts
-
-        if not calls.empty:
-            options_info["total_call_oi"] = int(calls['openInterest'].sum())
-            # ITM 콜 (행사가 < 현재가)
-            itm_calls = calls[calls['strike'] < current_price]
-            options_info["itm_calls"] = int(itm_calls['openInterest'].sum()) if not itm_calls.empty else 0
-
-            # 감마 집중 구간 (OI 많은 행사가)
-            top_strikes = calls.nlargest(5, 'openInterest')[['strike', 'openInterest']]
-            options_info["gamma_exposure"] = [
-                {"strike": row['strike'], "oi": int(row['openInterest'])}
-                for _, row in top_strikes.iterrows()
-            ]
-
-        if not puts.empty:
-            options_info["total_put_oi"] = int(puts['openInterest'].sum())
-
-        # Put/Call 비율
-        if options_info["total_call_oi"] > 0:
-            options_info["put_call_ratio"] = round(
-                options_info["total_put_oi"] / options_info["total_call_oi"], 2
-            )
-
-        # Max Pain 계산 (간단 버전)
-        if not calls.empty and not puts.empty:
-            all_strikes = sorted(set(calls['strike'].tolist() + puts['strike'].tolist()))
-            min_pain = float('inf')
-            max_pain_strike = 0
-
-            for strike in all_strikes:
-                # 이 행사가에서의 총 손실
-                call_pain = calls[calls['strike'] < strike]['openInterest'].sum() * (strike - calls[calls['strike'] < strike]['strike']).sum() if not calls[calls['strike'] < strike].empty else 0
-                put_pain = puts[puts['strike'] > strike]['openInterest'].sum() * (puts[puts['strike'] > strike]['strike'] - strike).sum() if not puts[puts['strike'] > strike].empty else 0
-                total_pain = call_pain + put_pain
-
-                if total_pain < min_pain:
-                    min_pain = total_pain
-                    max_pain_strike = strike
-
-            options_info["max_pain"] = max_pain_strike
-
-    except Exception as e:
-        print(f"    ⚠️ 옵션 분석 오류: {e}")
-
-    return options_info
-
-
-# ============================================================
-# 3.8 소셜 센티먼트 (다중 소스)
-# ============================================================
-
-def get_social_sentiment(ticker: str) -> dict:
-    """Stocktwits + Reddit + 웹 스크래핑으로 센티먼트 수집"""
-    sentiment_info = {
-        "stocktwits_sentiment": None,
-        "stocktwits_messages": 0,
-        "trending": False,
-        "watchlist_count": 0,
-        "recent_posts": [],
-        "reddit_mentions": 0,
-        "twitter_sentiment": None,
-        "overall_sentiment": None,
-    }
-
-    bullish_total = 0
-    bearish_total = 0
-
-    # 1. Stocktwits
-    try:
-        url = f"https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-
-        if resp.status_code == 200:
-            data = resp.json()
-
-            symbol_data = data.get('symbol', {})
-            sentiment_info["watchlist_count"] = symbol_data.get('watchlist_count', 0)
-            sentiment_info["trending"] = symbol_data.get('is_following', False)
-
-            messages = data.get('messages', [])
-            sentiment_info["stocktwits_messages"] = len(messages)
-
-            bullish = 0
-            bearish = 0
-
-            for msg in messages[:20]:
-                entities = msg.get('entities', {})
-                sent = entities.get('sentiment', {})
-                if sent:
-                    if sent.get('basic') == 'Bullish':
-                        bullish += 1
-                    elif sent.get('basic') == 'Bearish':
-                        bearish += 1
-
-                if len(sentiment_info["recent_posts"]) < 3:
-                    sentiment_info["recent_posts"].append({
-                        "body": msg.get('body', '')[:100],
-                        "sentiment": sent.get('basic', 'Neutral') if sent else 'Neutral',
-                        "source": "Stocktwits"
-                    })
-
-            bullish_total += bullish
-            bearish_total += bearish
-
-            if bullish > bearish * 1.5:
-                sentiment_info["stocktwits_sentiment"] = "Bullish 🟢"
-            elif bearish > bullish * 1.5:
-                sentiment_info["stocktwits_sentiment"] = "Bearish 🔴"
-            else:
-                sentiment_info["stocktwits_sentiment"] = "Neutral ⚪"
-
-    except:
-        pass
-
-    # 2. Reddit (wallstreetbets, stocks 등) - 웹 스크래핑
-    try:
-        reddit_url = f"https://www.reddit.com/search.json?q={ticker}&sort=new&limit=10"
-        resp = requests.get(reddit_url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
-        }, timeout=10)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            posts = data.get('data', {}).get('children', [])
-            sentiment_info["reddit_mentions"] = len(posts)
-
-            # 제목에서 센티먼트 추정
-            for post in posts[:5]:
-                title = post.get('data', {}).get('title', '').lower()
-                subreddit = post.get('data', {}).get('subreddit', '')
-
-                # 간단한 키워드 기반 센티먼트
-                bull_words = ['moon', 'rocket', 'buy', 'calls', 'squeeze', 'bullish', 'long', '🚀', '💎']
-                bear_words = ['sell', 'puts', 'short', 'bearish', 'crash', 'dump', 'avoid']
-
-                if any(w in title for w in bull_words):
-                    bullish_total += 1
-                elif any(w in title for w in bear_words):
-                    bearish_total += 1
-
-                if len(sentiment_info["recent_posts"]) < 5:
-                    sentiment_info["recent_posts"].append({
-                        "body": post.get('data', {}).get('title', '')[:100],
-                        "sentiment": "Reddit",
-                        "source": f"r/{subreddit}"
-                    })
-
-    except:
-        pass
-
-    # 3. Finviz 뉴스 센티먼트
-    try:
-        finviz_url = f"https://finviz.com/quote.ashx?t={ticker}"
-        resp = requests.get(finviz_url, headers=HEADERS, timeout=10)
-
-        if resp.status_code == 200:
-            # Analyst Rating 추출
-            rating_match = re.search(r'Recom.*?(\d+\.?\d*)', resp.text)
-            if rating_match:
-                rating = float(rating_match.group(1))
-                # 1=Strong Buy, 5=Sell
-                if rating <= 2:
-                    bullish_total += 2
-                elif rating >= 4:
-                    bearish_total += 2
-
-    except:
-        pass
-
-    # 4. 종합 센티먼트 결정
-    if bullish_total > bearish_total * 1.5:
-        sentiment_info["overall_sentiment"] = "🟢 강세 (Bullish) - 매수 분위기"
-    elif bearish_total > bullish_total * 1.5:
-        sentiment_info["overall_sentiment"] = "🔴 약세 (Bearish) - 매도 분위기"
-    elif bullish_total > 0 or bearish_total > 0:
-        sentiment_info["overall_sentiment"] = "⚪ 혼조 (Mixed) - 의견 갈림"
-    else:
-        sentiment_info["overall_sentiment"] = "❓ 데이터 부족"
-
-    return sentiment_info
-
-
-# ============================================================
-# 3.9 촉매(Catalyst) 일정
-# ============================================================
-
-def get_catalyst_calendar(stock) -> dict:
-    """어닝, FDA, 컨퍼런스 등 촉매 일정"""
-    catalyst_info = {
-        "next_earnings": None,
-        "earnings_estimate": None,
-        "recent_earnings_surprise": None,
-        "ex_dividend_date": None,
-        "upcoming_events": [],
-    }
-
-    try:
-        info = stock.info
-
-        # 어닝 일정
-        earnings_date = info.get('earningsDate')
-        if earnings_date:
-            if isinstance(earnings_date, list) and earnings_date:
-                catalyst_info["next_earnings"] = datetime.fromtimestamp(earnings_date[0]).strftime('%Y-%m-%d')
-            elif isinstance(earnings_date, (int, float)):
-                catalyst_info["next_earnings"] = datetime.fromtimestamp(earnings_date).strftime('%Y-%m-%d')
-
-        # 어닝 서프라이즈
-        earnings_hist = stock.earnings_history if hasattr(stock, 'earnings_history') else None
-        if earnings_hist is not None and not earnings_hist.empty:
-            latest = earnings_hist.iloc[-1] if len(earnings_hist) > 0 else None
-            if latest is not None:
-                surprise = latest.get('surprisePercent')
-                if surprise:
-                    catalyst_info["recent_earnings_surprise"] = f"{surprise:.1f}%"
-
-        # 배당일
-        ex_div = info.get('exDividendDate')
-        if ex_div:
-            catalyst_info["ex_dividend_date"] = datetime.fromtimestamp(ex_div).strftime('%Y-%m-%d')
-
-        # EPS 추정치
-        catalyst_info["earnings_estimate"] = info.get('targetMeanPrice')
-
-    except Exception as e:
-        print(f"    ⚠️ Catalyst 오류: {e}")
-
-    return catalyst_info
-
-
-# ============================================================
-# 3.10 피보나치 & 지지/저항 분석
-# ============================================================
-
-def get_fibonacci_levels(stock) -> dict:
-    """피보나치 되돌림 레벨 계산"""
-    fib_info = {
-        "levels": {},
-        "current_zone": None,
-        "support_levels": [],
-        "resistance_levels": [],
-        "gaps": [],
-    }
-
-    try:
-        # 최근 6개월 데이터
-        hist = stock.history(period="6mo")
-        if hist.empty:
-            return fib_info
-
-        high = hist['High'].max()
-        low = hist['Low'].min()
-        current = hist['Close'].iloc[-1]
-        diff = high - low
-
-        # 피보나치 레벨
-        fib_levels = {
-            "0%": high,
-            "23.6%": high - diff * 0.236,
-            "38.2%": high - diff * 0.382,
-            "50%": high - diff * 0.5,
-            "61.8%": high - diff * 0.618,
-            "78.6%": high - diff * 0.786,
-            "100%": low,
-        }
-        fib_info["levels"] = {k: round(v, 2) for k, v in fib_levels.items()}
-
-        # 현재 위치 분석
-        for level_name, level_price in fib_levels.items():
-            if current >= level_price:
-                fib_info["current_zone"] = f"{level_name} 위"
-                break
-
-        # 지지선/저항선 (현재가 기준)
-        for level_name, level_price in fib_levels.items():
-            if level_price < current:
-                fib_info["support_levels"].append({
-                    "level": level_name,
-                    "price": round(level_price, 2),
-                    "distance": f"{((current - level_price) / current * 100):.1f}%"
-                })
-            elif level_price > current:
-                fib_info["resistance_levels"].append({
-                    "level": level_name,
-                    "price": round(level_price, 2),
-                    "distance": f"{((level_price - current) / current * 100):.1f}%"
-                })
-
-        # 갭 분석 (최근 20일)
-        recent = hist.tail(20)
-        for i in range(1, len(recent)):
-            prev_close = recent['Close'].iloc[i-1]
-            curr_open = recent['Open'].iloc[i]
-            curr_high = recent['High'].iloc[i]
-            curr_low = recent['Low'].iloc[i]
-
-            # 갭업
-            if curr_open > prev_close * 1.02:
-                gap_filled = curr_low <= prev_close
-                fib_info["gaps"].append({
-                    "type": "갭업",
-                    "date": str(recent.index[i].date()),
-                    "gap_start": round(prev_close, 2),
-                    "gap_end": round(curr_open, 2),
-                    "filled": "충전됨" if gap_filled else "미충전"
-                })
-            # 갭다운
-            elif curr_open < prev_close * 0.98:
-                gap_filled = curr_high >= prev_close
-                fib_info["gaps"].append({
-                    "type": "갭다운",
-                    "date": str(recent.index[i].date()),
-                    "gap_start": round(curr_open, 2),
-                    "gap_end": round(prev_close, 2),
-                    "filled": "충전됨" if gap_filled else "미충전"
-                })
-
-    except Exception as e:
-        print(f"    ⚠️ 피보나치 오류: {e}")
-
-    return fib_info
-
-
-# ============================================================
-# 3.11 볼륨 프로파일
-# ============================================================
-
-def get_volume_profile(stock) -> dict:
-    """가격대별 거래량 분석"""
-    vp_info = {
-        "high_volume_zones": [],
-        "poc": None,  # Point of Control (가장 거래량 많은 가격대)
-        "value_area_high": None,
-        "value_area_low": None,
-    }
-
-    try:
-        hist = stock.history(period="3mo")
-        if hist.empty or len(hist) < 20:
-            return vp_info
-
-        # 가격 구간 생성 (20개 구간)
-        price_min = hist['Low'].min()
-        price_max = hist['High'].max()
-        num_bins = 20
-        bin_size = (price_max - price_min) / num_bins
-
-        volume_by_price = {}
-
-        for i in range(len(hist)):
-            avg_price = (hist['High'].iloc[i] + hist['Low'].iloc[i]) / 2
-            volume = hist['Volume'].iloc[i]
-
-            bin_idx = int((avg_price - price_min) / bin_size)
-            bin_idx = min(bin_idx, num_bins - 1)
-            bin_price = price_min + bin_idx * bin_size + bin_size / 2
-
-            if bin_price not in volume_by_price:
-                volume_by_price[bin_price] = 0
-            volume_by_price[bin_price] += volume
-
-        if volume_by_price:
-            # POC (Point of Control)
-            poc_price = max(volume_by_price, key=volume_by_price.get)
-            vp_info["poc"] = round(poc_price, 2)
-
-            # 상위 거래량 구간
-            sorted_zones = sorted(volume_by_price.items(), key=lambda x: x[1], reverse=True)
-            vp_info["high_volume_zones"] = [
-                {"price": round(price, 2), "volume": int(vol)}
-                for price, vol in sorted_zones[:5]
-            ]
-
-            # Value Area (거래량 70% 구간)
-            total_vol = sum(volume_by_price.values())
-            target_vol = total_vol * 0.7
-            cumulative = 0
-
-            # POC에서 시작해서 확장
-            va_prices = [poc_price]
-            remaining = {k: v for k, v in volume_by_price.items() if k != poc_price}
-            cumulative = volume_by_price[poc_price]
-
-            while cumulative < target_vol and remaining:
-                next_price = max(remaining, key=remaining.get)
-                va_prices.append(next_price)
-                cumulative += remaining[next_price]
-                del remaining[next_price]
-
-            vp_info["value_area_high"] = round(max(va_prices), 2)
-            vp_info["value_area_low"] = round(min(va_prices), 2)
-
-    except Exception as e:
-        print(f"    ⚠️ 볼륨 프로파일 오류: {e}")
-
-    return vp_info
-
-
-# ============================================================
-# 3.12 다크풀 & 장외거래 (다중 소스)
-# ============================================================
-
-def get_darkpool_data(ticker: str) -> dict:
-    """다크풀/숏볼륨 데이터 (여러 소스)"""
-    dp_info = {
-        "darkpool_volume": 0,
-        "darkpool_trades": 0,
-        "dp_percent": 0,
-        "short_volume_percent": 0,
-        "off_exchange_percent": 0,
-        "recent_dp_data": [],
-        "source": None,
-    }
-
-    # 1. Chartexchange 시도
-    try:
-        ce_url = f"https://chartexchange.com/symbol/nasdaq-{ticker.lower()}/"
-        resp = requests.get(ce_url, headers=HEADERS, timeout=10)
-
-        if resp.status_code == 200:
-            text = resp.text.lower()
-
-            # Short Volume 비율
-            sv_match = re.search(r'short\s*(?:volume|vol)[:\s]*(\d+\.?\d*)%', text)
-            if sv_match:
-                dp_info["short_volume_percent"] = float(sv_match.group(1))
-                dp_info["source"] = "Chartexchange"
-
-            # Off-exchange (다크풀) 비율
-            oe_match = re.search(r'off[- ]?exchange[:\s]*(\d+\.?\d*)%', text)
-            if oe_match:
-                dp_info["off_exchange_percent"] = float(oe_match.group(1))
-
-            # Dark Pool Volume
-            dp_vol_match = re.search(r'dark\s*pool\s*(?:volume)?[:\s]*([\d,]+)', text)
-            if dp_vol_match:
-                dp_info["darkpool_volume"] = int(dp_vol_match.group(1).replace(',', ''))
-
-    except:
-        pass
-
-    # 2. Fintel 백업 시도
-    if not dp_info["short_volume_percent"]:
-        try:
-            fintel_url = f"https://fintel.io/ss/us/{ticker.lower()}"
-            resp = requests.get(fintel_url, headers=HEADERS, timeout=10)
-
-            if resp.status_code == 200:
-                text = resp.text.lower()
-
-                # Short Volume Ratio
-                sv_match = re.search(r'short\s*volume\s*ratio[:\s]*(\d+\.?\d*)%', text)
-                if sv_match:
-                    dp_info["short_volume_percent"] = float(sv_match.group(1))
-                    dp_info["source"] = "Fintel"
-
-        except:
-            pass
-
-    # 3. Stocksera 백업 (무료 API)
-    if not dp_info["short_volume_percent"]:
-        try:
-            stocksera_url = f"https://stocksera.pythonanywhere.com/api/short_volume/{ticker}"
-            resp = requests.get(stocksera_url, timeout=10)
-
-            if resp.status_code == 200:
-                data = resp.json()
-                if data and len(data) > 0:
-                    latest = data[0]
-                    total = latest.get('total_volume', 0)
-                    short = latest.get('short_volume', 0)
-                    if total > 0:
-                        dp_info["short_volume_percent"] = round((short / total) * 100, 1)
-                        dp_info["source"] = "Stocksera"
-
-        except:
-            pass
-
-    # 4. 경고 수준 판단
-    if dp_info["short_volume_percent"] > 50:
-        dp_info["warning"] = "⚠️ 숏 볼륨 50% 초과 - 숏 압력 높음"
-    elif dp_info["short_volume_percent"] > 30:
-        dp_info["warning"] = "🟡 숏 볼륨 30%+ - 주의"
-
-    if dp_info["off_exchange_percent"] > 50:
-        dp_info["dp_warning"] = "⚠️ 장외거래 50% 초과 - 다크풀 활발"
-
-    return dp_info
-
-
-# ============================================================
-# 3.13 SEC Filing 파싱 (S-1, 10-K 등) - 개선판
-# ============================================================
-
-def get_sec_filings(ticker: str) -> dict:
-    """SEC EDGAR에서 최근 filing 목록 및 주요 내용 (개선판)"""
-    filings_info = {
-        "recent_filings": [],
-        "lockup_info": None,
-        "warrant_details": [],
-        "debt_details": [],
-        "insider_lockup_price": None,
-        "offering_info": [],
-        "company_name": None,
-        "cik": None,
-        # SPAC 관련
-        "is_spac": False,
-        "spac_merger_date": None,
-        "earnout_conditions": [],
-        "earnout_prices": [],
-        "earnout_shares": None,
-    }
-
-    headers = {"User-Agent": "DailyStockStory/1.0 (sean@example.com)"}
-
-    try:
-        cik = None
-
-        # 1. SEC 공식 티커-CIK 매핑 JSON 사용 (가장 정확!)
-        try:
-            tickers_url = "https://www.sec.gov/files/company_tickers.json"
-            resp = requests.get(tickers_url, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                tickers_data = resp.json()
-                for key, company in tickers_data.items():
-                    if company.get('ticker', '').upper() == ticker.upper():
-                        cik = str(company.get('cik_str', '')).zfill(10)
-                        filings_info["company_name"] = company.get('title')
-                        break
-        except:
-            pass
-
-        # 2. 백업: EDGAR 검색
-        if not cik:
-            try:
-                ticker_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker}&type=&dateb=&owner=include&count=10&output=atom"
-                resp = requests.get(ticker_url, headers=headers, timeout=15)
-                cik_match = re.search(r'CIK=(\d+)', resp.text)
-                if cik_match:
-                    cik = cik_match.group(1).zfill(10)
-            except:
-                pass
-
-        if not cik:
-            return filings_info
-        filings_info["cik"] = cik
-
-        # 2. 최근 filings 가져오기 (JSON API)
-        filings_url = f"https://data.sec.gov/submissions/CIK{cik}.json"
-        resp = requests.get(filings_url, headers=headers, timeout=15)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            filings_info["company_name"] = data.get('name')
-
-            recent = data.get('filings', {}).get('recent', {})
-
-            forms = recent.get('form', [])
-            dates = recent.get('filingDate', [])
-            accessions = recent.get('accessionNumber', [])
-            descriptions = recent.get('primaryDocument', [])
-
-            # 관심 있는 form 타입 (SPAC 관련 S-4, DEFM14A 추가)
-            important_forms = ["S-1", "S-1/A", "S-3", "S-4", "S-4/A", "424B4", "424B5", "10-K", "10-Q", "8-K", "DEF 14A", "DEFM14A"]
-
-            for i in range(min(30, len(forms))):
-                form_type = forms[i]
-                if form_type in important_forms or len(filings_info["recent_filings"]) < 10:
-                    filings_info["recent_filings"].append({
-                        "form": form_type,
-                        "date": dates[i],
-                        "accession": accessions[i].replace('-', ''),
-                        "document": descriptions[i] if i < len(descriptions) else ""
-                    })
-
-            # 3. 주요 문서에서 정보 추출
-            for filing in filings_info["recent_filings"][:5]:
-                form_type = filing["form"]
-
-                # S-1, S-4, 424B, DEF 14A, DEFM14A에서 락업/워런트/빚/earnout 정보 찾기
-                if form_type in ["S-1", "S-1/A", "S-4", "S-4/A", "424B4", "424B5", "DEF 14A", "DEFM14A", "10-K"]:
-                    try:
-                        # 문서 URL 생성
-                        acc_formatted = filing['accession']
-                        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc_formatted}/{filing['document']}"
-
-                        doc_resp = requests.get(doc_url, headers=headers, timeout=20)
-
-                        if doc_resp.status_code == 200:
-                            doc_text = doc_resp.text.lower()
-
-                            # Lock-up 가격/기간 찾기 (더 많은 패턴)
-                            if not filings_info["insider_lockup_price"]:
-                                lockup_patterns = [
-                                    # 가격 기반 락업 (SPAC 스타일)
-                                    r'lock-?up.*?(?:release[sd]?|terminate[sd]?).*?(?:stock\s*)?price.*?(?:equals?\s*or\s*)?exceeds?\s*\$?([\d,]+\.?\d*)',
-                                    r'(?:lock-?up|restriction).*?(?:expire[sd]?|release[sd]?).*?(?:when|if).*?\$([\d,]+\.?\d*)',
-                                    # 전통적 락업
-                                    r'lock-?up.*?(?:price|until).*?(\$[\d,]+\.?\d*)',
-                                    r'may not (?:sell|transfer).*?until.*?(?:closing price|stock price).*?(\$[\d,]+\.?\d*)',
-                                    r'(?:180|90|365)\s*days?\s*(?:after|following).*?ipo',
-                                    r'insider.*?lock.*?(\$[\d,]+\.?\d*)',
-                                    r'(?:founder|insider|officer|sponsor).*?(?:may not sell|restricted|cannot transfer).*?(\$[\d,]+)',
-                                    # 주가 조건부 락업
-                                    r'(?:shares?|stock).*?(?:released?|unlocked?).*?(?:if|when).*?price.*?(?:reaches?|exceeds?|equals?)\s*\$?([\d,]+\.?\d*)',
-                                    r'(?:restriction|lock-?up).*?(?:waived?|removed?).*?(?:stock\s*)?price.*?\$?([\d,]+\.?\d*)',
-                                ]
-
-                                for pattern in lockup_patterns:
-                                    match = re.search(pattern, doc_text)
-                                    if match:
-                                        if match.groups() and match.group(1):
-                                            price_str = match.group(1).replace(',', '')
-                                            try:
-                                                price_val = float(price_str)
-                                                if 10 <= price_val <= 500:  # 합리적인 가격 범위
-                                                    filings_info["insider_lockup_price"] = f"${price_val}"
-                                                    break
-                                            except:
-                                                pass
-                                        else:
-                                            filings_info["lockup_info"] = "180일 락업 존재"
-                                            break
-
-                            # 워런트 정보 (더 많은 패턴)
-                            if not filings_info["warrant_details"]:
-                                warrant_patterns = [
-                                    r'warrant.*?exercise\s*price.*?(\$[\d,]+\.?\d*)',
-                                    r'warrants?\s*(?:to purchase|exercisable).*?(\$[\d,]+\.?\d*)',
-                                    r'exercise\s*price\s*(?:of|is)\s*(\$[\d,]+\.?\d*)\s*per\s*share',
-                                ]
-
-                                for pattern in warrant_patterns:
-                                    matches = re.findall(pattern, doc_text)
-                                    if matches:
-                                        filings_info["warrant_details"] = list(set(matches))[:5]
-                                        break
-
-                            # 빚/Debt 정보
-                            if not filings_info["debt_details"]:
-                                debt_patterns = [
-                                    r'(credit facility|term loan|senior note|convertible note).*?(\$[\d,]+\.?\d*\s*(?:million|billion)?)',
-                                    r'(indebtedness|borrowing).*?(\$[\d,]+\.?\d*\s*(?:million|billion)?)',
-                                    r'outstanding\s*(debt|loan).*?(\$[\d,]+\.?\d*\s*(?:million|billion)?)',
-                                ]
-
-                                for pattern in debt_patterns:
-                                    matches = re.findall(pattern, doc_text)
-                                    if matches:
-                                        filings_info["debt_details"] = [
-                                            f"{m[0].title()}: {m[1]}" for m in matches[:5]
-                                        ]
-                                        break
-
-                            # Offering 정보 (S-3, 424B)
-                            if form_type in ["S-3", "424B4", "424B5"]:
-                                offering_match = re.search(r'(?:offering|issuance).*?(\d[\d,]*)\s*shares.*?(\$[\d,]+\.?\d*)', doc_text)
-                                if offering_match:
-                                    filings_info["offering_info"].append({
-                                        "shares": offering_match.group(1),
-                                        "price": offering_match.group(2),
-                                        "date": filing["date"],
-                                        "form": form_type
-                                    })
-
-                            # SPAC / Earnout 정보 (S-4, DEFM14A, 8-K)
-                            if form_type in ["S-4", "S-4/A", "DEFM14A", "8-K"]:
-                                # SPAC 여부 감지
-                                spac_keywords = ['business combination', 'spac', 'blank check', 'de-spac', 'merger agreement']
-                                if any(kw in doc_text for kw in spac_keywords):
-                                    filings_info["is_spac"] = True
-
-                                # Earnout 조건 찾기
-                                earnout_patterns = [
-                                    # "closing price equals or exceeds $X for Y trading days"
-                                    r'(?:closing|stock)\s*price\s*(?:equals?\s*or\s*)?exceeds?\s*\$?([\d,]+\.?\d*)\s*(?:per\s*share\s*)?(?:for|during)\s*(\d+)\s*(?:trading\s*)?days?',
-                                    # "VWAP exceeds $X"
-                                    r'vwap\s*(?:equals?\s*or\s*)?exceeds?\s*\$?([\d,]+\.?\d*)',
-                                    # "stock price reaches $X"
-                                    r'stock\s*price\s*(?:of\s*the\s*company\s*)?reaches?\s*\$?([\d,]+\.?\d*)',
-                                    # "earnout shares... $X"
-                                    r'earnout\s*shares?.*?\$?([\d,]+\.?\d*)\s*(?:per\s*share)?',
-                                    # "if the price... exceeds $X"
-                                    r'if\s*(?:the\s*)?(?:closing\s*)?price.*?exceeds?\s*\$?([\d,]+\.?\d*)',
-                                ]
-
-                                for pattern in earnout_patterns:
-                                    matches = re.findall(pattern, doc_text)
-                                    for match in matches:
-                                        if isinstance(match, tuple):
-                                            price = match[0]
-                                        else:
-                                            price = match
-                                        try:
-                                            price_val = float(price.replace(',', ''))
-                                            if 10 <= price_val <= 500:  # 합리적인 가격 범위
-                                                if f"${price_val}" not in filings_info["earnout_prices"]:
-                                                    filings_info["earnout_prices"].append(f"${price_val}")
-                                        except:
-                                            pass
-
-                                # Earnout 주식 수 찾기
-                                earnout_shares_patterns = [
-                                    r'(\d[\d,]*)\s*(?:earnout|contingent)\s*shares?',
-                                    r'(?:earnout|contingent)\s*shares?\s*(?:of\s*)?(\d[\d,]*)',
-                                    r'up\s*to\s*(\d[\d,]*)\s*additional\s*shares?',
-                                ]
-                                for pattern in earnout_shares_patterns:
-                                    match = re.search(pattern, doc_text)
-                                    if match:
-                                        filings_info["earnout_shares"] = match.group(1)
-                                        break
-
-                                # 락업 조건 (SPAC 특화)
-                                spac_lockup_patterns = [
-                                    r'(?:founder|sponsor|insider)\s*shares?.*?(?:lock-?up|may\s*not\s*(?:sell|transfer)).*?(?:until|unless).*?(?:stock\s*)?price.*?\$?([\d,]+\.?\d*)',
-                                    r'(?:lock-?up|restriction).*?(?:released?|terminate[sd]?).*?(?:stock\s*)?price.*?(?:equals?\s*or\s*)?exceeds?\s*\$?([\d,]+\.?\d*)',
-                                    r'shares?\s*(?:may\s*)?(?:not\s*)?(?:be\s*)?(?:sold|transferred).*?until.*?(?:\$|price\s*of\s*)([\d,]+\.?\d*)',
-                                ]
-                                for pattern in spac_lockup_patterns:
-                                    match = re.search(pattern, doc_text)
-                                    if match and not filings_info["insider_lockup_price"]:
-                                        try:
-                                            price_val = float(match.group(1).replace(',', ''))
-                                            if 10 <= price_val <= 500:
-                                                filings_info["insider_lockup_price"] = f"${price_val}"
-                                        except:
-                                            pass
-
-                    except Exception as e:
-                        pass  # 개별 문서 파싱 실패는 무시
-
-    except Exception as e:
-        print(f"    ⚠️ SEC Filing 파싱 오류: {e}")
-
-    return filings_info
-
-
-# ============================================================
-# 3.14 기관 보유 변화 (13F)
-# ============================================================
-
-def get_institutional_changes(stock) -> dict:
-    """기관 보유 변화 분석"""
-    inst_info = {
-        "total_institutional": 0,
-        "top_holders": [],
-        "recent_changes": [],
-        "net_institutional_change": "unknown",
-    }
-
-    try:
-        # yfinance 기관 보유
-        holders = stock.institutional_holders
-        if holders is not None and not holders.empty:
-            inst_info["total_institutional"] = len(holders)
-
-            for _, row in holders.head(5).iterrows():
-                inst_info["top_holders"].append({
-                    "holder": row.get('Holder', 'N/A'),
-                    "shares": int(row.get('Shares', 0)),
-                    "value": int(row.get('Value', 0)),
-                    "pct_out": f"{row.get('pctHeld', 0) * 100:.2f}%" if row.get('pctHeld') else 'N/A'
-                })
-
-        # 기관 보유 비율
-        info = stock.info
-        inst_pct = info.get('heldPercentInstitutions')
-        if inst_pct:
-            inst_info["institutional_percent"] = f"{inst_pct * 100:.1f}%"
-
-    except Exception as e:
-        print(f"    ⚠️ 기관 보유 분석 오류: {e}")
-
-    return inst_info
-
-
-# ============================================================
-# 3.15 동종업체 비교
-# ============================================================
-
-def get_peer_comparison(stock, ticker: str) -> dict:
-    """동종업체 비교 분석"""
-    peer_info = {
-        "sector": None,
-        "industry": None,
-        "peers": [],
-        "sector_avg_pe": None,
-        "relative_valuation": None,
-    }
-
-    try:
-        info = stock.info
-        peer_info["sector"] = info.get('sector')
-        peer_info["industry"] = info.get('industry')
-
-        my_pe = info.get('trailingPE')
-        my_pb = info.get('priceToBook')
-        my_ps = info.get('priceToSalesTrailing12Months')
-
-        # 섹터 평균 (yfinance는 peers 제공 안함, 대신 sector 평균 추정)
-        sector_pe_avg = {
-            "Technology": 25,
-            "Healthcare": 20,
-            "Financial Services": 12,
-            "Consumer Cyclical": 18,
-            "Communication Services": 20,
-            "Industrials": 16,
-            "Energy": 10,
-            "Basic Materials": 12,
-            "Consumer Defensive": 22,
-            "Real Estate": 35,
-            "Utilities": 18,
-        }
-
-        sector = info.get('sector')
-        if sector and sector in sector_pe_avg:
-            peer_info["sector_avg_pe"] = sector_pe_avg[sector]
-
-            if my_pe and my_pe > 0:
-                ratio = my_pe / sector_pe_avg[sector]
-                if ratio > 1.5:
-                    peer_info["relative_valuation"] = "고평가 ⚠️"
-                elif ratio < 0.7:
-                    peer_info["relative_valuation"] = "저평가 💰"
-                else:
-                    peer_info["relative_valuation"] = "적정"
-            else:
-                peer_info["relative_valuation"] = "적자기업 (PE 없음)"
-
-    except Exception as e:
-        print(f"    ⚠️ 동종업체 비교 오류: {e}")
-
-    return peer_info
-
-
-# ============================================================
-# 3.16 Short Interest 히스토리
-# ============================================================
-
-def get_short_history(ticker: str) -> dict:
-    """Short Interest 변화 추이 (여러 소스 시도)"""
-    short_hist = {
-        "history": [],
-        "trend": "unknown",
-        "change_30d": None,
-        "current_si": None,
-        "prior_si": None,
-    }
-
-    try:
-        # 1. yfinance에서 기본 Short 데이터
-        stock = yf.Ticker(ticker)
-        info = stock.info
-
-        current = info.get('sharesShort')
-        prior = info.get('sharesShortPriorMonth')
-
-        if current:
-            short_hist["current_si"] = current
-        if prior:
-            short_hist["prior_si"] = prior
-
-        # 변화율 계산
-        if current and prior and prior > 0:
-            change = ((current - prior) / prior) * 100
-            short_hist["change_30d"] = f"{change:+.1f}%"
-
-            if change > 50:
-                short_hist["trend"] = "급증 📈🔥"
-            elif change > 20:
-                short_hist["trend"] = "급증 📈"
-            elif change > 5:
-                short_hist["trend"] = "증가 ↗️"
-            elif change < -30:
-                short_hist["trend"] = "급감 📉 (커버링?)"
-            elif change < -10:
-                short_hist["trend"] = "감소 ↘️"
-            else:
-                short_hist["trend"] = "안정"
-
-            # 히스토리 추가
-            short_hist["history"].append({
-                "date": "현재",
-                "short_interest": current,
-            })
-            short_hist["history"].append({
-                "date": "전월",
-                "short_interest": prior,
-            })
-
-        # 2. Finviz에서 추가 데이터 시도
-        try:
-            finviz_url = f"https://finviz.com/quote.ashx?t={ticker}"
-            resp = requests.get(finviz_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }, timeout=10)
-
-            if resp.status_code == 200:
-                # Short Float % 추출
-                match = re.search(r'Short Float.*?(\d+\.?\d*)%', resp.text)
-                if match:
-                    short_hist["short_float_pct"] = f"{match.group(1)}%"
-
-                # Short Ratio 추출
-                match2 = re.search(r'Short Ratio.*?(\d+\.?\d*)', resp.text)
-                if match2:
-                    short_hist["short_ratio"] = float(match2.group(1))
-
-        except:
-            pass
-
-        # 3. Chartexchange 백업
-        try:
-            ce_url = f"https://chartexchange.com/symbol/nasdaq-{ticker.lower()}/"
-            resp = requests.get(ce_url, headers=HEADERS, timeout=10)
-
-            if resp.status_code == 200:
-                # Short Volume 추출
-                sv_match = re.search(r'short\s*volume[:\s]*(\d[\d,]*)', resp.text.lower())
-                if sv_match:
-                    short_hist["short_volume"] = sv_match.group(1).replace(',', '')
-
-        except:
-            pass
-
-    except Exception as e:
-        print(f"    ⚠️ Short History 오류: {e}")
-
-    return short_hist
-
-
-# ============================================================
-# 4. RegSHO Threshold List
-# ============================================================
-
-def check_regsho(ticker: str) -> bool:
-    """DB 또는 NASDAQ에서 RegSHO 확인"""
-    # DB 체크
-    try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT 1 FROM regsho_list
-                WHERE ticker = %s AND collected_at > NOW() - INTERVAL '7 days'
-                LIMIT 1
-            """, (ticker,))
-            result = cur.fetchone()
-            conn.close()
-            if result:
-                return True
-    except:
-        pass
-
-    # NASDAQ 직접 체크
-    try:
-        url = "https://www.nasdaqtrader.com/dynamic/symdir/regsho/nasdaqth.txt"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        if ticker.upper() in resp.text.upper():
-            return True
-    except:
-        pass
-
-    return False
-
-
-# ============================================================
-# 5. 기술적 지표
-# ============================================================
-
-def get_technicals(stock) -> dict:
-    """기술적 지표 계산"""
-    try:
-        hist = stock.history(period="3mo")
-
-        if hist.empty:
-            return {}
-
-        close = hist["Close"]
-        high = hist["High"]
-        low = hist["Low"]
-        volume = hist["Volume"]
-
-        # RSI (14일)
-        delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-
-        # MACD
-        ema12 = close.ewm(span=12, adjust=False).mean()
-        ema26 = close.ewm(span=26, adjust=False).mean()
-        macd = ema12 - ema26
-        signal = macd.ewm(span=9, adjust=False).mean()
-        macd_hist = macd - signal
-
-        # 볼린저 밴드
-        sma20 = close.rolling(window=20).mean()
-        std20 = close.rolling(window=20).std()
-        bb_upper = sma20 + (std20 * 2)
-        bb_lower = sma20 - (std20 * 2)
-
-        current = close.iloc[-1]
-        bb_position = ((current - bb_lower.iloc[-1]) / (bb_upper.iloc[-1] - bb_lower.iloc[-1])) * 100 if bb_upper.iloc[-1] != bb_lower.iloc[-1] else 50
-
-        # ATR
-        tr = pd.concat([
-            high - low,
-            abs(high - close.shift()),
-            abs(low - close.shift())
-        ], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
-
-        # 거래량 비율
-        vol_ratio = volume.iloc[-1] / volume.rolling(window=20).mean().iloc[-1] if volume.rolling(window=20).mean().iloc[-1] > 0 else 1
-
-        return {
-            "rsi": rsi.iloc[-1],
-            "macd": macd.iloc[-1],
-            "macd_signal": signal.iloc[-1],
-            "macd_hist": macd_hist.iloc[-1],
-            "bb_upper": bb_upper.iloc[-1],
-            "bb_middle": sma20.iloc[-1],
-            "bb_lower": bb_lower.iloc[-1],
-            "bb_position": bb_position,
-            "atr": atr.iloc[-1],
-            "atr_pct": (atr.iloc[-1] / current) * 100,
-            "vol_ratio": vol_ratio,
-            "sma_20": sma20.iloc[-1],
-            "sma_50": close.rolling(window=50).mean().iloc[-1] if len(close) >= 50 else None,
-            # 가격 변화
-            "change_1d": ((close.iloc[-1] / close.iloc[-2]) - 1) * 100 if len(close) >= 2 else 0,
-            "change_5d": ((close.iloc[-1] / close.iloc[-5]) - 1) * 100 if len(close) >= 5 else 0,
-            "change_20d": ((close.iloc[-1] / close.iloc[-20]) - 1) * 100 if len(close) >= 20 else 0,
-        }
-    except Exception as e:
-        print(f"  ⚠️ 기술적 분석 실패: {e}")
-        return {}
-
-
-# ============================================================
-# 6. 경영진 & 내부자
-# ============================================================
-
-def get_officers(stock) -> list:
-    """경영진 정보"""
-    try:
-        return stock.info.get("companyOfficers", [])
-    except:
-        return []
-
-
-def get_insider_transactions(stock) -> list:
-    """내부자 거래"""
-    try:
-        insider = stock.insider_transactions
-        if insider is not None and not insider.empty:
-            return insider.to_dict('records')
-        return []
-    except:
-        return []
-
-
-def get_institutional_holders(stock) -> list:
-    """기관 보유"""
-    try:
-        holders = stock.institutional_holders
-        if holders is not None and not holders.empty:
-            return holders.to_dict('records')
-        return []
-    except:
-        return []
-
-
-# ============================================================
-# 7. 뉴스 수집
-# ============================================================
-
-def get_news(stock) -> list:
-    """yfinance 뉴스"""
-    try:
-        news = stock.news
-        return news[:10] if news else []
-    except:
-        return []
-
-
-def search_recent_news(ticker: str, days: int = 60) -> list:
-    """구글 뉴스 검색 (최근 N일 필터)"""
-    try:
-        from datetime import datetime, timedelta
-        cutoff_date = datetime.now() - timedelta(days=days)
-
-        url = f"https://news.google.com/rss/search?q={ticker}+stock&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        news = []
-        for item in soup.find_all("item")[:15]:
-            title = item.find("title")
-            link = item.find("link")
-            pub_date = item.find("pubDate")
-
-            if title:
-                # 날짜 파싱 및 필터링
-                date_str = pub_date.text if pub_date else ""
-                try:
-                    # "Wed, 22 Jan 2026 10:00:00 GMT" 형식
-                    parsed_date = datetime.strptime(date_str[:16], "%a, %d %b %Y")
-                    if parsed_date < cutoff_date:
-                        continue  # 오래된 뉴스 스킵
-                except:
-                    pass
-
-                news.append({
-                    "title": title.text,
-                    "link": link.text if link else "",
-                    "date": date_str
-                })
-        return news[:10]
-    except:
-        return []
-
-
-# ============================================================
-# 섹터별 특화 뉴스 수집
-# ============================================================
-
-def get_sector_news(ticker: str, sector: str, industry: str) -> dict:
-    """섹터별 특화 뉴스 수집 (최근 60일)"""
-    sector_news = {
-        "general_news": [],
-        "sector_specific": [],
-        "catalysts": [],
-        "source": None,
-    }
-
-    sector_lower = (sector or "").lower()
-    industry_lower = (industry or "").lower()
-
-    # 1. 일반 구글 뉴스 (백업)
-    sector_news["general_news"] = search_recent_news(ticker, days=60)
-
-    # 2. 섹터별 특화 뉴스
-    if "biotech" in industry_lower or "pharma" in industry_lower or "healthcare" in sector_lower:
-        sector_news["sector_specific"] = get_biotech_news(ticker)
-        sector_news["source"] = "🧬 Biotech"
-    elif "software" in industry_lower or "semiconductor" in industry_lower or "technology" in sector_lower:
-        sector_news["sector_specific"] = get_tech_news(ticker)
-        sector_news["source"] = "🤖 Tech/AI"
-    elif "energy" in sector_lower or "oil" in industry_lower or "gas" in industry_lower:
-        sector_news["sector_specific"] = get_energy_news(ticker)
-        sector_news["source"] = "⛽ Energy"
-    elif "auto" in industry_lower or "vehicle" in industry_lower or "ev" in industry_lower:
-        sector_news["sector_specific"] = get_automotive_news(ticker)
-        sector_news["source"] = "🚗 Automotive"
-    elif "real estate" in sector_lower or "reit" in industry_lower:
-        # REIT 체크를 retail 앞에 (REIT - Retail 구분)
-        sector_news["sector_specific"] = get_realestate_news(ticker)
-        sector_news["source"] = "🏠 Real Estate"
-    elif "retail" in industry_lower or "e-commerce" in industry_lower or "store" in industry_lower:
-        sector_news["sector_specific"] = get_retail_news(ticker)
-        sector_news["source"] = "🛒 Retail"
-    elif "food" in industry_lower or "beverage" in industry_lower or "consumer" in sector_lower:
-        sector_news["sector_specific"] = get_consumer_news(ticker)
-        sector_news["source"] = "🍔 Consumer"
-    elif "bank" in industry_lower or "financial" in sector_lower or "insurance" in industry_lower:
-        sector_news["sector_specific"] = get_financial_news(ticker)
-        sector_news["source"] = "🏦 Financial"
-    elif "industrial" in sector_lower or "aerospace" in industry_lower or "defense" in industry_lower:
-        sector_news["sector_specific"] = get_industrial_news(ticker)
-        sector_news["source"] = "🏭 Industrial"
-    else:
-        # 기본: Finviz 뉴스
-        sector_news["sector_specific"] = get_finviz_news(ticker)
-        sector_news["source"] = "📰 General"
-
-    return sector_news
-
-
-def get_biotech_news(ticker: str) -> list:
-    """바이오텍 전용 뉴스 (BioSpace, FiercePharma)"""
-    news = []
-
-    # 1. BioSpace 검색
-    try:
-        url = f"https://www.biospace.com/search?q={ticker}"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            articles = soup.select("article h3 a, .article-title a")[:5]
-            for a in articles:
-                news.append({
-                    "title": a.text.strip(),
-                    "link": a.get("href", ""),
-                    "source": "BioSpace"
-                })
-    except:
-        pass
-
-    # 2. 구글 뉴스 바이오텍 키워드
-    try:
-        keywords = f"{ticker} FDA OR clinical OR trial OR Phase OR approval"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/FDA"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_tech_news(ticker: str) -> list:
-    """AI/Tech 전용 뉴스"""
-    news = []
-
-    # 구글 뉴스 AI/Tech 키워드
-    try:
-        keywords = f"{ticker} AI OR artificial intelligence OR GPU OR datacenter OR cloud"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/AI"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_energy_news(ticker: str) -> list:
-    """에너지 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} oil OR gas OR drilling OR OPEC OR energy"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Energy"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_automotive_news(ticker: str) -> list:
-    """자동차/EV 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} EV OR electric vehicle OR battery OR autonomous OR Tesla OR charging"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Auto"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_retail_news(ticker: str) -> list:
-    """리테일/이커머스 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} retail OR e-commerce OR consumer spending OR sales OR store"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Retail"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_consumer_news(ticker: str) -> list:
-    """소비재/식품 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} food OR beverage OR consumer goods OR grocery OR brand"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Consumer"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_financial_news(ticker: str) -> list:
-    """금융/핀테크 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} bank OR fintech OR interest rate OR Fed OR lending OR credit"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Finance"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_industrial_news(ticker: str) -> list:
-    """산업재/제조 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} manufacturing OR industrial OR defense OR aerospace OR contract"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/Industrial"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_realestate_news(ticker: str) -> list:
-    """부동산/리츠 전용 뉴스"""
-    news = []
-
-    try:
-        keywords = f"{ticker} REIT OR real estate OR property OR mortgage OR housing"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:7]:
-            title = item.find("title")
-            if title:
-                news.append({
-                    "title": title.text,
-                    "link": item.find("link").text if item.find("link") else "",
-                    "source": "Google/RealEstate"
-                })
-    except:
-        pass
-
-    return news
-
-
-def get_finviz_news(ticker: str) -> list:
-    """Finviz 뉴스 스크래핑"""
-    news = []
-
-    try:
-        url = f"https://finviz.com/quote.ashx?t={ticker}"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, "html.parser")
-            news_table = soup.find("table", {"id": "news-table"})
-
-            if news_table:
-                rows = news_table.find_all("tr")[:7]
-                for row in rows:
-                    link = row.find("a")
-                    if link:
-                        news.append({
-                            "title": link.text.strip(),
-                            "link": link.get("href", ""),
-                            "source": "Finviz"
-                        })
-    except:
-        pass
-
-    return news
-
-
-# ============================================================
-# 바이오텍 특화 분석 (FDA, 임상시험)
-# ============================================================
-
-def get_biotech_catalysts(ticker: str, company_name: str) -> dict:
-    """바이오텍 촉매 분석 (FDA, 임상시험)"""
-    catalysts = {
-        "fda_status": [],
-        "clinical_trials": [],
-        "pdufa_dates": [],
-        "fast_track": False,
-        "breakthrough": False,
-        "orphan_drug": False,
-    }
-
-    # 1. FDA 관련 뉴스 검색
-    try:
-        keywords = f"{ticker} FDA approval OR Fast Track OR PDUFA OR BLA OR NDA"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                # FDA 상태 감지
-                if "fast track" in title_lower:
-                    catalysts["fast_track"] = True
-                if "breakthrough" in title_lower:
-                    catalysts["breakthrough"] = True
-                if "orphan" in title_lower:
-                    catalysts["orphan_drug"] = True
-                if "pdufa" in title_lower:
-                    catalysts["pdufa_dates"].append(title.text)
-
-                catalysts["fda_status"].append({
-                    "headline": title.text,
-                    "date": item.find("pubDate").text if item.find("pubDate") else ""
-                })
-    except:
-        pass
-
-    # 2. ClinicalTrials.gov API
-    try:
-        # 회사명 전체로 검색 (더 정확)
-        # "Greenwich LifeSciences" 처럼 앞 2단어 사용
-        if company_name:
-            words = company_name.replace(",", "").replace(".", "").split()[:2]
-            search_term = " ".join(words)
-        else:
-            search_term = ticker
-
-        ct_url = f"https://clinicaltrials.gov/api/v2/studies?query.spons={search_term}&pageSize=10"
-        resp = requests.get(ct_url, headers={"Accept": "application/json"}, timeout=15)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            studies = data.get("studies", [])
-
-            for study in studies[:5]:
-                protocol = study.get("protocolSection", {})
-                id_module = protocol.get("identificationModule", {})
-                status_module = protocol.get("statusModule", {})
-                design_module = protocol.get("designModule", {})
-                sponsor_module = protocol.get("sponsorCollaboratorsModule", {})
-
-                # 스폰서 이름 확인 (정확한 매칭)
-                lead_sponsor = sponsor_module.get("leadSponsor", {}).get("name", "")
-                # 회사명이 스폰서에 포함되지 않으면 스킵
-                if company_name and company_name.split()[0].lower() not in lead_sponsor.lower():
-                    continue
-
-                phase_list = design_module.get("phases", [])
-                phase = phase_list[0] if phase_list else "N/A"
-
-                catalysts["clinical_trials"].append({
-                    "nct_id": id_module.get("nctId", ""),
-                    "title": id_module.get("briefTitle", "")[:80],
-                    "phase": phase,
-                    "status": status_module.get("overallStatus", ""),
-                    "completion": status_module.get("primaryCompletionDateStruct", {}).get("date", "N/A"),
-                    "sponsor": lead_sponsor[:40]
-                })
-    except Exception as e:
-        pass
-
-    return catalysts
-
-
-def get_automotive_catalysts(ticker: str, company_name: str) -> dict:
-    """자동차/EV 촉매 분석"""
-    catalysts = {
-        "production_numbers": [],
-        "new_models": [],
-        "ev_credits": False,
-        "battery_partnership": False,
-        "autonomous_update": False,
-    }
-
-    try:
-        # EV/자동차 관련 뉴스 검색
-        keywords = f"{ticker} production OR delivery OR new model OR EV tax credit OR battery"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                if "production" in title_lower or "deliver" in title_lower:
-                    catalysts["production_numbers"].append(title.text)
-                if "new model" in title_lower or "launch" in title_lower:
-                    catalysts["new_models"].append(title.text)
-                if "ev credit" in title_lower or "tax credit" in title_lower:
-                    catalysts["ev_credits"] = True
-                if "battery" in title_lower and "partner" in title_lower:
-                    catalysts["battery_partnership"] = True
-                if "autonomous" in title_lower or "self-driving" in title_lower:
-                    catalysts["autonomous_update"] = True
-    except:
-        pass
-
-    return catalysts
-
-
-def get_retail_catalysts(ticker: str, company_name: str) -> dict:
-    """리테일 촉매 분석"""
-    catalysts = {
-        "same_store_sales": [],
-        "ecommerce_growth": [],
-        "holiday_sales": False,
-        "store_openings": [],
-        "inventory_update": False,
-    }
-
-    try:
-        keywords = f"{ticker} same-store sales OR e-commerce OR holiday sales OR store opening"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                if "same-store" in title_lower or "comparable" in title_lower:
-                    catalysts["same_store_sales"].append(title.text)
-                if "e-commerce" in title_lower or "online sales" in title_lower:
-                    catalysts["ecommerce_growth"].append(title.text)
-                if "holiday" in title_lower or "black friday" in title_lower:
-                    catalysts["holiday_sales"] = True
-                if "open" in title_lower and "store" in title_lower:
-                    catalysts["store_openings"].append(title.text)
-                if "inventory" in title_lower:
-                    catalysts["inventory_update"] = True
-    except:
-        pass
-
-    return catalysts
-
-
-def get_financial_catalysts(ticker: str, company_name: str) -> dict:
-    """금융 촉매 분석"""
-    catalysts = {
-        "fed_rate_impact": [],
-        "loan_growth": [],
-        "regulatory_news": [],
-        "dividend_update": False,
-        "capital_ratio": False,
-    }
-
-    try:
-        keywords = f"{ticker} Fed rate OR interest rate OR loan growth OR regulation OR dividend"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                if "fed" in title_lower or "interest rate" in title_lower:
-                    catalysts["fed_rate_impact"].append(title.text)
-                if "loan" in title_lower and ("growth" in title_lower or "demand" in title_lower):
-                    catalysts["loan_growth"].append(title.text)
-                if "regulat" in title_lower or "compliance" in title_lower:
-                    catalysts["regulatory_news"].append(title.text)
-                if "dividend" in title_lower:
-                    catalysts["dividend_update"] = True
-                if "capital" in title_lower and "ratio" in title_lower:
-                    catalysts["capital_ratio"] = True
-    except:
-        pass
-
-    return catalysts
-
-
-def get_industrial_catalysts(ticker: str, company_name: str) -> dict:
-    """산업재 촉매 분석"""
-    catalysts = {
-        "contracts": [],
-        "gov_spending": [],
-        "defense_budget": [],
-        "supply_chain": False,
-        "pmi_update": False,
-    }
-
-    try:
-        keywords = f"{ticker} contract OR government OR defense budget OR supply chain OR manufacturing"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                if "contract" in title_lower and ("win" in title_lower or "award" in title_lower):
-                    catalysts["contracts"].append(title.text)
-                if "government" in title_lower and "spend" in title_lower:
-                    catalysts["gov_spending"].append(title.text)
-                if "defense" in title_lower and "budget" in title_lower:
-                    catalysts["defense_budget"].append(title.text)
-                if "supply chain" in title_lower:
-                    catalysts["supply_chain"] = True
-                if "pmi" in title_lower or "manufacturing index" in title_lower:
-                    catalysts["pmi_update"] = True
-    except:
-        pass
-
-    return catalysts
-
-
-def get_realestate_catalysts(ticker: str, company_name: str) -> dict:
-    """부동산/리츠 촉매 분석"""
-    catalysts = {
-        "rate_impact": [],
-        "occupancy": [],
-        "acquisitions": [],
-        "cap_rate": False,
-        "noi_growth": False,
-    }
-
-    try:
-        keywords = f"{ticker} interest rate OR occupancy OR acquisition OR cap rate OR NOI"
-        url = f"https://news.google.com/rss/search?q={keywords}&hl=en-US&gl=US&ceid=US:en"
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "xml")
-
-        for item in soup.find_all("item")[:5]:
-            title = item.find("title")
-            if title:
-                title_lower = title.text.lower()
-
-                if "rate" in title_lower and ("cut" in title_lower or "hike" in title_lower):
-                    catalysts["rate_impact"].append(title.text)
-                if "occupancy" in title_lower:
-                    catalysts["occupancy"].append(title.text)
-                if "acqui" in title_lower or "purchase" in title_lower:
-                    catalysts["acquisitions"].append(title.text)
-                if "cap rate" in title_lower:
-                    catalysts["cap_rate"] = True
-                if "noi" in title_lower or "net operating" in title_lower:
-                    catalysts["noi_growth"] = True
-    except:
-        pass
-
-    return catalysts
-
-
-# ============================================================
-# 8-K 공시 내용 파싱
-# ============================================================
-
-def parse_8k_content(ticker: str, cik: str) -> list:
-    """최근 8-K 공시에서 주요 이벤트 추출"""
-    events = []
-    headers = {"User-Agent": "DailyStockStory/1.0 (sean@example.com)"}
-
-    if not cik:
-        return events
-
-    try:
-        # 최근 filing 목록 가져오기
-        filings_url = f"https://data.sec.gov/submissions/CIK{cik.zfill(10)}.json"
-        resp = requests.get(filings_url, headers=headers, timeout=15)
-
-        if resp.status_code == 200:
-            data = resp.json()
-            recent = data.get('filings', {}).get('recent', {})
-
-            forms = recent.get('form', [])
-            dates = recent.get('filingDate', [])
-            accessions = recent.get('accessionNumber', [])
-            descriptions = recent.get('primaryDocument', [])
-
-            # 최근 8-K만 필터링 (최대 5개)
-            eight_k_count = 0
-            for i in range(min(50, len(forms))):
-                if forms[i] == "8-K" and eight_k_count < 5:
-                    eight_k_count += 1
-
-                    # 8-K 문서 내용 가져오기
-                    try:
-                        acc = accessions[i].replace('-', '')
-                        doc = descriptions[i] if i < len(descriptions) else ""
-                        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc}/{doc}"
-
-                        doc_resp = requests.get(doc_url, headers=headers, timeout=15)
-
-                        if doc_resp.status_code == 200:
-                            text = doc_resp.text.lower()
-
-                            # 주요 이벤트 키워드 감지
-                            event_type = "기타"
-                            importance = "보통"
-
-                            if "fda" in text and ("approv" in text or "clear" in text):
-                                event_type = "FDA 승인/허가"
-                                importance = "🔥 중요"
-                            elif "phase" in text and ("result" in text or "data" in text):
-                                event_type = "임상 결과 발표"
-                                importance = "🔥 중요"
-                            elif "agreement" in text or "partnership" in text or "collaborat" in text:
-                                event_type = "계약/파트너십"
-                                importance = "⚡ 주목"
-                            elif "offering" in text or "securities" in text:
-                                event_type = "유증/공모"
-                                importance = "⚠️ 희석"
-                            elif "executive" in text or "officer" in text or "director" in text:
-                                event_type = "임원 변동"
-                                importance = "보통"
-                            elif "earning" in text or "financial" in text or "quarter" in text:
-                                event_type = "실적 발표"
-                                importance = "📊 실적"
-
-                            events.append({
-                                "date": dates[i],
-                                "type": event_type,
-                                "importance": importance,
-                                "accession": accessions[i]
-                            })
-                    except:
-                        pass
-
-    except:
-        pass
-
-    return events
-
-
-# ============================================================
-# 8. 숏스퀴즈 점수 계산 (v3 - Zero Borrow 반영)
-# ============================================================
-
-def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: dict) -> dict:
+def calculate_squeeze_score_v3(data: dict, borrow: dict, regsho_info: dict, tech: dict) -> dict:
     """
     숏스퀴즈 점수 v3 (0-100) - Zero Borrow 반영!
 
@@ -2457,7 +178,7 @@ def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: 
 
     # ========== Borrow Rate (0-20점) ==========
     br = borrow.get("borrow_rate")
-    if br and br < 999:  # 999는 Zero Borrow
+    if br and br < 999:
         if br > 100:
             score += 20
             details.append(f"Borrow Rate {br:.1f}% (극단적): +20점")
@@ -2482,11 +203,24 @@ def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: 
             score += 10
             details.append(f"Short % of Float {si_pct:.1f}%: +10점")
 
-    # ========== RegSHO (0-15점) ==========
-    if in_regsho:
+    # ========== RegSHO (0-30점) ==========
+    if regsho_info.get("listed"):
         score += 15
         details.append("RegSHO Threshold 등재: +15점")
         bullish.append("FTD 다수 발생 - 강제 커버링 압력")
+
+        days = regsho_info.get("days", 0)
+        if days >= 13:
+            score += 15
+            details.append(f"RegSHO 연속 {days}일 (강제 바이인 구간!): +15점")
+            bullish.append(f"13일 이상 연속 등재 - 브로커 강제 바이인 가능!")
+        elif days >= 8:
+            score += 10
+            details.append(f"RegSHO 연속 {days}일 (위험 구간): +10점")
+            bullish.append(f"강제 바이인까지 {13-days}일 남음")
+        elif days >= 3:
+            score += 5
+            details.append(f"RegSHO 연속 {days}일: +5점")
 
     # ========== Low Float (0-10점) ==========
     float_shares = data.get("float_shares")
@@ -2525,7 +259,6 @@ def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: 
 
     # ========== 리스크 분석 ==========
 
-    # RSI 과매수
     rsi = tech.get("rsi") if tech else None
     if rsi:
         if rsi > 85:
@@ -2533,17 +266,14 @@ def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: 
         elif rsi > 70:
             risks.append(f"🟡 RSI {rsi:.1f} - 과매수 구간")
 
-    # 볼린저 상단 돌파
     bb_pos = tech.get("bb_position") if tech else None
     if bb_pos and bb_pos > 100:
         risks.append(f"🟡 볼린저 상단 돌파 ({bb_pos:.1f}%) - 과열")
 
-    # ATR 변동성
     atr_pct = tech.get("atr_pct") if tech else None
     if atr_pct and atr_pct > 15:
         risks.append(f"🟡 극단적 변동성 (ATR {atr_pct:.1f}%)")
 
-    # Short 변화 (감소 = 커버링 진행중)
     curr = data.get("shares_short")
     prev = data.get("shares_short_prior")
     if curr and prev and prev > 0:
@@ -2560,24 +290,21 @@ def calculate_squeeze_score_v3(data: dict, borrow: dict, in_regsho: bool, tech: 
 
 
 # ============================================================
-# 9. Gemini AI 분석
+# Gemini AI 분석
 # ============================================================
 
 def analyze_with_gemini(ticker: str, data: dict, borrow: dict, tech: dict,
-                        in_regsho: bool, score_info: dict, news: list,
+                        regsho_info: dict, score_info: dict, news: list,
                         force_normal: bool = False, sec_info: dict = None,
                         sec_filings: dict = None) -> str:
     """Gemini AI로 종합 분석"""
     sec_info = sec_info or {}
     sec_filings = sec_filings or {}
 
-    # 데이터 요약 생성
-    # 안전한 값 추출
     rsi_val = f"{tech.get('rsi'):.1f}" if tech.get('rsi') else 'N/A'
     bb_val = f"{tech.get('bb_position'):.1f}" if tech.get('bb_position') else 'N/A'
     vol_val = f"{tech.get('vol_ratio'):.2f}" if tech.get('vol_ratio') else 'N/A'
 
-    # 재무 지표 추출
     eps = data.get('eps', 0) or 0
     pe = data.get('pe_ratio')
     debt_equity = data.get('debt_to_equity')
@@ -2612,7 +339,7 @@ def analyze_with_gemini(ticker: str, data: dict, borrow: dict, tech: dict,
 - Days to Cover: {data.get('short_ratio', 'N/A')}
 - Zero Borrow: {'✅ YES (빌릴 주식 없음!)' if borrow.get('is_zero_borrow') else '❌ NO'}
 - Borrow Rate: {borrow.get('borrow_rate', 'N/A')}%
-- RegSHO 등재: {'✅ YES' if in_regsho else '❌ NO'}
+- RegSHO 등재: {'✅ YES (연속 ' + str(regsho_info.get("days", 0)) + '일)' if regsho_info.get("listed") else '❌ NO'}
 
 ### 기술적 지표
 - RSI: {rsi_val}
@@ -2647,7 +374,6 @@ def analyze_with_gemini(ticker: str, data: dict, borrow: dict, tech: dict,
 - Earnout 주식 수: {sec_filings.get('earnout_shares', '정보없음') if sec_filings else '정보없음'}
 """
 
-    # 숏스퀴즈 상황인지 판단 (force_normal이면 무조건 일반 분석)
     is_squeeze_play = False if force_normal else (
         borrow.get('is_zero_borrow') or (data.get('short_pct_float') and data.get('short_pct_float') > 0.2)
     )
@@ -2735,7 +461,7 @@ GME, AMC 다 그랬잖아.
 
 
 # ============================================================
-# 10. 출력 함수들
+# 출력 함수들
 # ============================================================
 
 def print_basic_info(data: dict):
@@ -2747,19 +473,15 @@ def print_basic_info(data: dict):
     print(f"  직원수: {fmt_num(data['employees'])}명")
     print(f"  웹사이트: {data['website'] or 'N/A'}")
 
-    # 사업 설명 (뭘로 돈 버는지) - 한글 번역!
     desc = data.get('description')
     if desc:
         subsection("사업 내용 (뭘로 돈 버나?)")
-        # 한글 번역 시도
         if translator:
             try:
-                # 500자 제한 후 번역
                 desc_short = desc[:800] if len(desc) > 800 else desc
                 desc_ko = translator.translate(desc_short)
                 print(f"  {desc_ko}")
-            except Exception as e:
-                # 번역 실패 시 원문
+            except Exception:
                 print(f"  {desc[:500]}..." if len(desc) > 500 else f"  {desc}")
         else:
             print(f"  {desc[:500]}..." if len(desc) > 500 else f"  {desc}")
@@ -2779,7 +501,6 @@ def print_financials(data: dict):
     total_debt = data.get('total_debt')
     de_ratio = data.get('debt_to_equity')
 
-    # 매출/이익
     subsection("매출 & 이익")
     print(f"  매출 (TTM): {fmt_num(revenue, '$')}")
     print(f"  순이익: {fmt_num(net_income, '$')}")
@@ -2787,26 +508,22 @@ def print_financials(data: dict):
     if revenue_growth:
         print(f"  매출 성장률: {revenue_growth*100:+.1f}%")
 
-    # 수익성
     subsection("수익성")
     print(f"  EPS: ${eps:.2f}" if eps else "  EPS: N/A (적자)")
     print(f"  P/E: {pe:.1f}" if pe else "  P/E: N/A (적자 또는 데이터 없음)")
 
-    # 흑자/적자 판단
     if net_income:
         if net_income > 0:
             print(f"  💰 흑자 기업")
         else:
             print(f"  🔴 적자 기업 (순손실: {fmt_num(abs(net_income), '$')})")
 
-    # 재무 건전성
     subsection("재무 건전성")
     print(f"  현금: {fmt_num(total_cash, '$')}")
     print(f"  부채: {fmt_num(total_debt, '$')}")
     if de_ratio:
         print(f"  부채비율 (D/E): {de_ratio:.1f}%")
 
-    # 현금 > 부채면 양호
     if total_cash and total_debt:
         if total_cash > total_debt:
             print(f"  ✅ 현금이 부채보다 많음 (재무 양호)")
@@ -2839,11 +556,10 @@ def print_price_info(data: dict):
     print(f"  Float: {fmt_num(data['float_shares'])}")
 
 
-def print_short_data(data: dict, borrow: dict, in_regsho: bool):
+def print_short_data(data: dict, borrow: dict, regsho_info: dict):
     """숏 데이터"""
     section("숏 포지션 분석", "🩳")
 
-    # Zero Borrow 강조!
     if borrow.get("is_zero_borrow"):
         print(f"\n  {'🔥'*10}")
         print(f"  🚨 ZERO BORROW! 빌릴 주식 없음! 🚨")
@@ -2858,7 +574,6 @@ def print_short_data(data: dict, borrow: dict, in_regsho: bool):
     print(f"  Short Shares: {fmt_num(data['shares_short'])}")
     print(f"  Days to Cover: {data['short_ratio']:.2f}일" if data['short_ratio'] else "")
 
-    # Short 변화
     curr = data['shares_short']
     prev = data['shares_short_prior']
     if curr and prev:
@@ -2878,8 +593,16 @@ def print_short_data(data: dict, borrow: dict, in_regsho: bool):
     print(f"  대차가능 주식: {fmt_num(borrow.get('available_shares'))}")
 
     subsection("RegSHO Threshold")
-    if in_regsho:
-        print(f"  ✅ 등재됨 - FTD 다수 발생, 강제 커버링 압력")
+    if regsho_info.get("listed"):
+        days = regsho_info.get("days", 0)
+        if days > 0:
+            print(f"  ✅ 등재됨 - 연속 {days}일째")
+            if days >= 13:
+                print(f"  🚨 강제 바이인 구간! (13일 이상)")
+            elif days >= 8:
+                print(f"  ⚠️ 강제 바이인까지 {13-days}일 남음")
+        else:
+            print(f"  ✅ 등재됨 - FTD 다수 발생")
     else:
         print(f"  ❌ 미등재")
 
@@ -2921,11 +644,12 @@ def print_technicals(tech: dict, price: float):
     print(f"  20일: {tech.get('change_20d', 0):+.2f}%")
 
 
-def print_squeeze_score(score_info: dict):
+def print_squeeze_score(score_info: dict, regsho_info: dict):
     """스퀴즈 점수"""
     section("숏스퀴즈 종합 점수", "🎰")
 
     score = score_info['score']
+    in_regsho = regsho_info.get("listed", False)
 
     if score >= 80:
         grade = "🔥🔥🔥🔥 극단적 (숏 지옥)"
@@ -2938,10 +662,19 @@ def print_squeeze_score(score_info: dict):
     else:
         grade = "❄️ 낮음"
 
+    if score >= 40 and in_regsho:
+        label = "🚨 SQUEEZE"
+    elif score >= 40:
+        label = "👀 SQUEEZE WATCH"
+    else:
+        label = ""
+
     bar_filled = int(score / 5)
     bar = "█" * bar_filled + "░" * (20 - bar_filled)
     print(f"\n  [{bar}] {score}/100")
     print(f"  등급: {grade}")
+    if label:
+        print(f"  판정: {label}")
 
     if score_info.get('details'):
         subsection("점수 구성")
@@ -3002,7 +735,6 @@ def print_sector_news(sector_news: dict):
     source = sector_news.get("source", "General")
     section(f"섹터별 뉴스 ({source})", "📡")
 
-    # 섹터 특화 뉴스
     specific = sector_news.get("sector_specific", [])
     if specific:
         subsection(f"{source} 전문 뉴스 (최근 60일)")
@@ -3015,7 +747,6 @@ def print_sector_news(sector_news: dict):
     else:
         print("  섹터 특화 뉴스 없음")
 
-    # 일반 뉴스 (백업)
     general = sector_news.get("general_news", [])
     if general:
         subsection("일반 뉴스 (Google)")
@@ -3028,7 +759,6 @@ def print_biotech_catalysts(catalysts: dict):
     """바이오텍 촉매 출력"""
     section("바이오텍 촉매 분석", "💊")
 
-    # FDA 상태
     if catalysts.get("fast_track"):
         print("  🚀 FDA Fast Track 지정!")
     if catalysts.get("breakthrough"):
@@ -3036,7 +766,6 @@ def print_biotech_catalysts(catalysts: dict):
     if catalysts.get("orphan_drug"):
         print("  🏥 Orphan Drug 지정!")
 
-    # FDA 관련 뉴스
     fda_status = catalysts.get("fda_status", [])
     if fda_status:
         subsection("FDA 관련 뉴스")
@@ -3044,7 +773,6 @@ def print_biotech_catalysts(catalysts: dict):
             headline = news.get('headline', '')[:70]
             print(f"  [{i}] {headline}...")
 
-    # 임상시험 정보
     trials = catalysts.get("clinical_trials", [])
     if trials:
         subsection("진행 중인 임상시험 (ClinicalTrials.gov)")
@@ -3236,7 +964,6 @@ def print_sec_info(sec_info: dict):
     """SEC 공시 정보"""
     section("SEC 공시 분석", "📋")
 
-    # 숫자 표시
     subsection("SEC 키워드 언급 횟수 (2024년~)")
     print(f"  Warrant 언급: {sec_info.get('warrant_mentions', 0)}건")
     print(f"  Dilution 언급: {sec_info.get('dilution_mentions', 0)}건")
@@ -3249,7 +976,6 @@ def print_sec_info(sec_info: dict):
     print(f"  호재 관련: {sec_info.get('positive_news', 0)}건")
     print(f"  악재 관련: {sec_info.get('negative_news', 0)}건")
 
-    # 리스크 해석
     subsection("리스크 해석")
     risks = []
     safe = []
@@ -3469,7 +1195,6 @@ def print_sec_filings(filings: dict):
     if filings.get("lockup_info"):
         print(f"  🔒 락업 정보: {filings['lockup_info']}")
 
-    # SPAC / Earnout 정보
     if filings.get("is_spac"):
         print(f"\n  🚀 SPAC 합병 종목!")
 
@@ -3504,7 +1229,7 @@ def print_sec_filings(filings: dict):
             if f['form'] in ['S-1', 'S-3', '424B4', '424B5']:
                 form_emoji = "⚠️"
             elif f['form'] in ['S-4', 'S-4/A', 'DEFM14A']:
-                form_emoji = "🚀"  # SPAC 관련
+                form_emoji = "🚀"
             elif f['form'] == '8-K':
                 form_emoji = "📢"
             elif f['form'] in ['10-K', '10-Q']:
@@ -3590,7 +1315,7 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
 
         # 3. RegSHO
         print("  → RegSHO Threshold...")
-        in_regsho = check_regsho(ticker)
+        regsho_info = check_regsho(ticker)
 
         # 4. 기술적 지표
         print("  → 기술적 분석...")
@@ -3630,7 +1355,6 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
             sector_catalysts = get_automotive_catalysts(ticker, company_name)
             sector_catalyst_type = "automotive"
         elif "real estate" in sector_lower or "reit" in industry_lower:
-            # REIT 체크를 retail 앞에 (REIT - Retail 구분)
             print("  → 부동산/리츠 촉매 분석...")
             sector_catalysts = get_realestate_catalysts(ticker, company_name)
             sector_catalyst_type = "realestate"
@@ -3640,7 +1364,7 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
             sector_catalyst_type = "retail"
         elif "food" in industry_lower or "beverage" in industry_lower or "consumer" in sector_lower:
             print("  → 소비재 촉매 분석...")
-            sector_catalysts = get_retail_catalysts(ticker, company_name)  # 리테일과 유사
+            sector_catalysts = get_retail_catalysts(ticker, company_name)
             sector_catalyst_type = "consumer"
         elif "bank" in industry_lower or "financial" in sector_lower or "insurance" in industry_lower:
             print("  → 금융 촉매 분석...")
@@ -3706,57 +1430,45 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
 
         # 19. 스퀴즈 점수
         print("  → 스퀴즈 점수 계산...")
-        score_info = calculate_squeeze_score_v3(data, borrow, in_regsho, tech)
+        score_info = calculate_squeeze_score_v3(data, borrow, regsho_info, tech)
 
         print("\n✅ 데이터 수집 완료!")
 
         # ========== 출력 ==========
 
-        # 기본 정보
         print_basic_info(data)
         print_price_info(data)
         print_financials(data)
 
-        # 숏스퀴즈 관련
-        print_short_data(data, borrow, in_regsho)
+        print_short_data(data, borrow, regsho_info)
         print_short_history(short_history)
         print_ftd_data(ftd_data)
 
-        # 기술적 분석
         print_technicals(tech, data.get('price', 0))
         print_fibonacci(fib_data)
         print_volume_profile(volume_profile)
 
-        # 옵션 & 다크풀
         print_options_data(options_data)
         print_darkpool(darkpool_data)
 
-        # 스퀴즈 점수
-        print_squeeze_score(score_info)
+        print_squeeze_score(score_info, regsho_info)
 
-        # SEC 분석
         print_sec_info(sec_info)
         print_sec_filings(sec_filings)
 
-        # 기관 & 동종업체
         print_institutional(institutional_data)
         print_peer_comparison(peer_data)
 
-        # 촉매 & 센티먼트
         print_catalyst(catalyst_data)
         print_social_sentiment(sentiment_data)
 
-        # 경영진 & 뉴스
         print_officers(officers)
         print_news(news)
 
-        # 섹터별 특화 뉴스
         print_sector_news(sector_news)
 
-        # 8-K 주요 이벤트
         print_8k_events(eight_k_events)
 
-        # 섹터별 촉매 (해당시)
         if sector_catalysts:
             if sector_catalyst_type == "biotech":
                 print_biotech_catalysts(sector_catalysts)
@@ -3777,7 +1489,7 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
             section("Gemini AI 종합 분석", "🤖")
             print("\n  ⏳ AI 분석 중...")
             ai_analysis = analyze_with_gemini(
-                ticker, data, borrow, tech, in_regsho, score_info, news, force_normal, sec_info, sec_filings
+                ticker, data, borrow, tech, regsho_info, score_info, news, force_normal, sec_info, sec_filings
             )
             print(f"\n{ai_analysis}")
 
@@ -3801,6 +1513,20 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
             print(f"     → 기존 숏 탈출 = 시장 매수 필수")
             print(f"     → 스퀴즈 조건 충족!")
 
+        if regsho_info.get("listed"):
+            days = regsho_info.get("days", 0)
+            if days > 0:
+                print(f"\n  📋 RegSHO Threshold 등재 ({days}일째)")
+                if days >= 13:
+                    print(f"     → 🚨 강제 바이인 구간!")
+            else:
+                print(f"\n  📋 RegSHO Threshold 등재됨")
+
+        if score >= 40 and regsho_info.get("listed"):
+            print(f"\n  🚨 SQUEEZE 판정!")
+        elif score >= 40:
+            print(f"\n  👀 SQUEEZE WATCH 판정")
+
         print(f"\n{'='*70}")
         print(f"⚠️ 투자 결정은 본인 책임입니다.")
         print(f"{'='*70}\n")
@@ -3809,7 +1535,7 @@ def analyze(ticker: str, use_ai: bool = True, force_normal: bool = False):
             "data": data,
             "borrow": borrow,
             "tech": tech,
-            "in_regsho": in_regsho,
+            "regsho_info": regsho_info,
             "score_info": score_info
         }
 

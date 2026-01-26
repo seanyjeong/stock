@@ -82,9 +82,28 @@ sudo journalctl -u stock-api -f    # 로그 확인
 │   ├── portfolio.py         # 포트폴리오 API
 │   ├── watchlist.py         # 관심종목 API
 │   └── trades.py            # 거래이력 API
-├── scanners/                 # 스캐너 시스템 (v2)
-│   ├── news_collector.py    # 뉴스 수집 (SEC/Finviz/Yahoo)
-│   └── full_market_scanner.py # 시장 스캔 + Gemini AI + 추천 알림
+├── lib/                      # 공통 분석 라이브러리
+│   ├── base.py              # DB 연결, 포맷 유틸
+│   ├── technicals.py        # RSI, MACD, 피보나치, 볼륨프로파일
+│   ├── borrow.py            # 대차이자, Zero Borrow
+│   ├── regsho.py            # RegSHO Threshold List
+│   ├── sec.py               # SEC 공시, FTD, 파일링
+│   ├── options.py           # 옵션 체인, Max Pain
+│   ├── news.py              # 섹터별 뉴스 (13개 함수)
+│   ├── catalysts.py         # 바이오텍/자동차 등 촉매 (7개)
+│   ├── institutional.py     # 기관 보유, 동종업체 비교
+│   ├── social.py            # Stocktwits/Reddit 센티먼트
+│   └── darkpool.py          # 다크풀/숏볼륨
+├── scanners/                 # 스캐너 시스템 (v3)
+│   ├── runner.py            # CLI 오케스트레이터
+│   ├── screener.py          # 종목 풀 소싱 (뉴스/Finviz/고정)
+│   ├── scoring.py           # 등급/AI추천/분할매수
+│   ├── storage.py           # 카테고리별 MERGE 저장
+│   ├── day_scanner.py       # 단타 스캐너 (0-100점)
+│   ├── swing_scanner.py     # 스윙 스캐너 (0-100점)
+│   ├── long_scanner.py      # 장기 스캐너 (0-100점)
+│   ├── squeeze_scanner.py   # 숏스퀴즈 데이터 수집
+│   └── news_collector.py    # 뉴스 수집 (SEC/Finviz/Yahoo)
 ├── deep_analyzer.py          # 숏스퀴즈 정밀 분석 (v4)
 ├── stock_collector.py        # 데이터 수집 v3 Lite (RegSHO, 환율, 블로그)
 ├── web/                      # 프론트엔드 (SvelteKit)
@@ -493,13 +512,19 @@ sudo journalctl -u stock-api -f    # 로그 확인
 
 ```bash
 # 데이터 수집 (매일 09:00 KST)
-0 9 * * * cd ~/dailystockstory && uv run python stock_collector.py
+0 0 * * 2-6 cd ~/dailystockstory && uv run python stock_collector.py
 
-# 단타 추천 (22:00 KST, 월-금)
-0 22 * * 1-5 cd ~/dailystockstory && uv run python day_trader_scanner.py
+# 뉴스 수집 (17:00 KST = 08:00 UTC, 월-금)
+0 8 * * 1-5 cd ~/dailystockstory && uv run python scanners/news_collector.py
 
-# 스윙/장기 추천 (10:00 KST, 화-토)
-0 10 * * 2-6 cd ~/dailystockstory && uv run python swing_long_scanner.py
+# 단타 스캔 (17:30 KST = 08:30 UTC, 프리마켓 직전)
+30 8 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type day
+
+# 스윙 스캔 (06:00 KST = 21:00 UTC, 장 마감 직후)
+0 21 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type swing
+
+# 장기 스캔 (06:05 KST = 21:05 UTC, 장 마감 직후)
+5 21 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type long
 ```
 
 ---
@@ -739,11 +764,23 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v2.5.0
+- **프론트엔드**: v2.9.0
 - **deep_analyzer**: v4 (나스닥의 신)
-- **문서 업데이트**: 2026-01-25
+- **스캐너**: v3 (모듈 분리 + 카테고리별 MERGE)
+- **문서 업데이트**: 2026-01-26
 
 ## 변경 이력
+
+### 스캐너 v3 (2026-01-26)
+- lib/ 공통 라이브러리 분리 (12개 모듈, deep_analyzer + 스캐너 공유)
+- 스캐너 모듈 분리: day_scanner, swing_scanner, long_scanner
+- 카테고리별 독립 MERGE 저장 (덮어쓰기 버그 해결)
+- 0-100점 정규화 점수 체계 (단타/스윙/장기 각각)
+- A+/A/B+/B/C 등급 체계
+- 스윙 동적 풀 (Finviz 스크리너 + fallback)
+- 가격 수정: currentPrice → regularMarketPrice → hist fallback
+- CLI: `python -m scanners.runner --type day|swing|long|all`
+- 크론 분리: 단타(프리마켓), 스윙/장기(장마감)
 
 ### v2.5.0 (2026-01-25)
 - 리포트 생성 + PDF 다운로드 기능

@@ -28,18 +28,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import get_db
 from psycopg2.extras import RealDictCursor
 
-# deep_analyzer에서 함수 import
-from deep_analyzer import (
-    get_borrow_data,
-    get_sec_info,
-)
+# lib/에서 공통 함수 import
+from lib import get_borrow_data, get_sec_info
+from lib.base import HEADERS
 
 import requests
 from bs4 import BeautifulSoup
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
 
 # 호재/악재 키워드
 POSITIVE_KEYWORDS = [

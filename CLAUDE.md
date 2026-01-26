@@ -175,7 +175,7 @@ uv run python deep_analyzer.py GLSI --normal
 |------|------|
 | `deep_analyzer.py` | 초정밀 주식 분석기 (v4) |
 | `stock_collector.py` | 데이터 수집 v3 Lite (RegSHO, 환율, 블로그) |
-| `scanners/full_market_scanner.py` | 종목 스캔 + AI 추천 + 알림 |
+| `scanners/runner.py` | 스캐너 오케스트레이터 (v3) |
 | `api/realtime.py` | 실시간 가격 (yfinance) |
 | `api/notifications.py` | 푸시 알림 (추천/RegSHO) |
 
