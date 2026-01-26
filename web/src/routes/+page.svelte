@@ -480,36 +480,38 @@
 							<div class="stock-card">
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
-										<a href="/stock/{item.ticker}" class="ticker-with-name">
-											<span class="stock-ticker">{item.ticker}</span>
+										<div class="ticker-row">
+											<a href="/stock/{item.ticker}" class="ticker-link">
+												<span class="stock-ticker">{item.ticker}</span>
+											</a>
 											{#if squeezeInfo}
-												<div class="squeeze-mini">
-													{#if squeezeInfo.borrow_rate}
-														<span class="sq-tag br" title="대차이자">{squeezeInfo.borrow_rate}%</span>
-													{/if}
-													{#if squeezeInfo.short_interest}
-														<span class="sq-tag si" title="공매도비율">SI {squeezeInfo.short_interest}%</span>
-													{/if}
-													{#if squeezeInfo.regsho_days > 0}
-														<span class="sq-tag reg" title="RegSHO 등재일">+{squeezeInfo.regsho_days}일</span>
-													{/if}
-												</div>
-											{:else if item.company_name}
-												<span class="company-name">{item.company_name}</span>
+												<span class="squeeze-score {squeezeInfo.rating.toLowerCase()}" title="스퀴즈 점수">
+													{squeezeInfo.combined_score}
+												</span>
 											{/if}
-										</a>
+											{#if regsho}
+												<RegSHOBadge ticker={item.ticker} holdingsOnList={regsho.holdings_on_list} />
+											{/if}
+											{#if item.afterhours_price}
+												<span class="market-badge ah">AH</span>
+											{:else if item.premarket_price}
+												<span class="market-badge pm">PM</span>
+											{/if}
+										</div>
 										{#if squeezeInfo}
-											<span class="squeeze-score {squeezeInfo.rating.toLowerCase()}" title="스퀴즈 점수">
-												{squeezeInfo.combined_score}
-											</span>
-										{/if}
-										{#if regsho}
-											<RegSHOBadge ticker={item.ticker} holdingsOnList={regsho.holdings_on_list} />
-										{/if}
-										{#if item.afterhours_price}
-											<span class="market-badge ah">AH</span>
-										{:else if item.premarket_price}
-											<span class="market-badge pm">PM</span>
+											<div class="squeeze-tags">
+												{#if squeezeInfo.borrow_rate}
+													<span class="sq-tag br" title="대차이자">{squeezeInfo.borrow_rate}%</span>
+												{/if}
+												{#if squeezeInfo.short_interest}
+													<span class="sq-tag si" title="공매도비율">SI {squeezeInfo.short_interest}%</span>
+												{/if}
+												{#if squeezeInfo.regsho_days > 0}
+													<span class="sq-tag reg" title="RegSHO 등재일">+{squeezeInfo.regsho_days}일</span>
+												{/if}
+											</div>
+										{:else if item.company_name}
+											<span class="company-name">{item.company_name}</span>
 										{/if}
 									</div>
 									<div class="stock-gain {getGainClass(item.gain)}">
@@ -1048,20 +1050,30 @@
 
 	.stock-ticker-wrap {
 		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+
+	.ticker-row {
+		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.375rem;
 		flex-wrap: wrap;
 	}
 
-	.ticker-with-name {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
+	.ticker-link {
 		text-decoration: none;
 	}
 
-	.ticker-with-name:hover .stock-ticker {
+	.ticker-link:hover .stock-ticker {
 		text-decoration: underline;
+	}
+
+	.squeeze-tags {
+		display: flex;
+		gap: 0.25rem;
+		flex-wrap: wrap;
 	}
 
 	.stock-ticker {
@@ -1077,13 +1089,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	/* Squeeze Mini Tags */
-	.squeeze-mini {
-		display: flex;
-		gap: 0.25rem;
-		flex-wrap: wrap;
 	}
 
 	.sq-tag {

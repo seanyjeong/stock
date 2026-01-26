@@ -163,7 +163,7 @@
 		<div class="info-list">
 			<div class="info-item">
 				<span class="info-label">버전</span>
-				<span class="info-value">2.9.0</span>
+				<span class="info-value">2.9.1</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">개발자</span>
