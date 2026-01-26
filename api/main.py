@@ -2,6 +2,12 @@
 Daily Stock Story API
 FastAPI backend for stock briefing and portfolio management
 """
+import os
+from dotenv import load_dotenv
+
+# .env 파일 로드 (프로젝트 루트)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
 import logging
 import traceback
 from datetime import datetime, timezone
@@ -578,7 +584,7 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Get latest squeeze data for each ticker (v2: 새 컬럼 포함)
+        # Get latest squeeze data for each ticker (v4: 시가총액 가중치 포함)
         cur.execute("""
             SELECT DISTINCT ON (s.ticker)
                 s.ticker,
@@ -593,6 +599,9 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
                 s.has_positive_news,
                 s.has_negative_news,
                 s.collected_at,
+                s.market_cap,
+                s.price_change_5d,
+                s.vol_ratio,
                 t.company_name,
                 r.days_on_list
             FROM squeeze_data s
@@ -624,27 +633,40 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
         cur.close()
         conn.close()
 
-        # Format results with combined score
+        # Format results (v4: 시가총액 가중치 적용된 점수 사용)
+        def get_market_cap_tier(mc):
+            if not mc or mc <= 0:
+                return "Unknown"
+            elif mc < 100_000_000:
+                return "Nano"
+            elif mc < 500_000_000:
+                return "Micro"
+            elif mc < 2_000_000_000:
+                return "Small"
+            else:
+                return "Mid/Large"
+
         result = []
         for row in squeeze_list:
-            # Recalculate combined score with RegSHO days
+            # v4: squeeze_score는 이미 시가총액 가중치 적용된 최종 점수
             squeeze_score = float(row["squeeze_score"]) if row["squeeze_score"] else 0
-            regsho_days = row["days_on_list"].days if row["days_on_list"] and hasattr(row["days_on_list"], 'days') else (int(row["days_on_list"]) if row["days_on_list"] else 0)
 
-            # Add RegSHO bonus (up to 15 points for 30+ days)
-            regsho_bonus = min(regsho_days / 2, 15) if regsho_days else 0
-            combined_score = round(squeeze_score + regsho_bonus, 1)
-
-            # Determine rating
-            if combined_score >= 60:
+            # v4 등급 기준
+            if squeeze_score >= 75:
+                rating = "SQUEEZE"
+            elif squeeze_score >= 55:
                 rating = "HOT"
-            elif combined_score >= 40:
+            elif squeeze_score >= 35:
                 rating = "WATCH"
             else:
                 rating = "COLD"
 
             # Zero Borrow 판정
             is_zero_borrow = row["borrow_rate"] and float(row["borrow_rate"]) >= 999
+
+            # 시가총액 티어
+            market_cap = int(row["market_cap"]) if row["market_cap"] else None
+            market_cap_tier = get_market_cap_tier(market_cap)
 
             result.append({
                 "ticker": row["ticker"],
@@ -659,20 +681,26 @@ async def get_squeeze_analysis(authorization: str = Header(None)):
                 "dilution_protected": bool(row["dilution_protected"]) if row["dilution_protected"] is not None else False,
                 "has_positive_news": bool(row["has_positive_news"]) if row["has_positive_news"] is not None else False,
                 "has_negative_news": bool(row["has_negative_news"]) if row["has_negative_news"] is not None else False,
+                # v4 지표
+                "market_cap": market_cap,
+                "market_cap_tier": market_cap_tier,
+                "price_change_5d": float(row["price_change_5d"]) if row["price_change_5d"] else None,
+                "vol_ratio": float(row["vol_ratio"]) if row["vol_ratio"] else None,
                 # 점수
                 "squeeze_score": squeeze_score,
-                "combined_score": combined_score,
+                "combined_score": squeeze_score,  # v4: 별도 combined 없음
                 "rating": rating,
                 "is_holding": row["ticker"] in portfolio_tickers,
             })
 
-        # Sort by combined score (highest first)
+        # Sort by score (highest first)
         result.sort(key=lambda x: x["combined_score"], reverse=True)
 
         return {
             "squeeze_list": result,
             "total_count": len(result),
-            "hot_count": sum(1 for r in result if r["rating"] == "HOT"),
+            "hot_count": sum(1 for r in result if r["rating"] in ("HOT", "SQUEEZE")),
+            "squeeze_count": sum(1 for r in result if r["rating"] == "SQUEEZE"),
             "holdings_count": sum(1 for r in result if r["is_holding"]),
         }
     except HTTPException:

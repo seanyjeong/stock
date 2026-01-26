@@ -18,12 +18,17 @@
 		combined_score: number;
 		rating: string;
 		is_holding: boolean;
+		market_cap: number | null;
+		market_cap_tier: string | null;
+		price_change_5d: number | null;
+		vol_ratio: number | null;
 	}
 
 	interface SqueezeData {
 		squeeze_list: SqueezeItem[];
 		total_count: number;
 		hot_count: number;
+		squeeze_count: number;
 		holdings_count: number;
 	}
 
@@ -60,6 +65,7 @@
 
 	function getRatingColor(rating: string): string {
 		switch (rating) {
+			case 'SQUEEZE': return '#a855f7';
 			case 'HOT': return '#f85149';
 			case 'WATCH': return '#f0883e';
 			default: return '#8b949e';
@@ -68,10 +74,18 @@
 
 	function getRatingEmoji(rating: string): string {
 		switch (rating) {
+			case 'SQUEEZE': return '🚀';
 			case 'HOT': return '🔥';
 			case 'WATCH': return '👀';
 			default: return '❄️';
 		}
+	}
+
+	function formatMarketCap(mc: number | null): string {
+		if (!mc) return '-';
+		if (mc >= 1_000_000_000) return '$' + (mc / 1_000_000_000).toFixed(1) + 'B';
+		if (mc >= 1_000_000) return '$' + (mc / 1_000_000).toFixed(0) + 'M';
+		return '$' + (mc / 1_000).toFixed(0) + 'K';
 	}
 
 	function formatNumber(n: number | null): string {
@@ -93,11 +107,14 @@
 <div class="container">
 	<div class="header">
 		<div class="title-row">
-			<h1>🔥 숏스퀴즈 분석 v2</h1>
+			<h1>🔥 숏스퀴즈 분석 v4</h1>
 			<button class="info-btn" onclick={() => showScoreModal = true} title="스코어 계산법">?</button>
 		</div>
 		{#if data}
 			<div class="stats">
+				{#if data.squeeze_count > 0}
+					<span class="stat squeeze">SQUEEZE {data.squeeze_count}</span>
+				{/if}
 				<span class="stat hot">HOT {data.hot_count}</span>
 				<span class="stat total">전체 {data.total_count}</span>
 			</div>
@@ -111,6 +128,7 @@
 	<!-- Filter -->
 	<div class="filter-bar">
 		<button class:active={filterRating === 'all'} onclick={() => filterRating = 'all'}>전체</button>
+		<button class:active={filterRating === 'SQUEEZE'} onclick={() => filterRating = 'SQUEEZE'}>🚀 SQUEEZE</button>
 		<button class:active={filterRating === 'HOT'} onclick={() => filterRating = 'HOT'}>🔥 HOT</button>
 		<button class:active={filterRating === 'WATCH'} onclick={() => filterRating = 'WATCH'}>👀 WATCH</button>
 		<button class:active={filterRating === 'holding'} onclick={() => filterRating = 'holding'}>💼 보유</button>
@@ -136,12 +154,15 @@
 				if (filterRating === 'holding') return item.is_holding;
 				return item.rating === filterRating;
 			}) as item, i}
-				<div class="squeeze-card" class:hot={item.rating === 'HOT'} class:holding={item.is_holding}>
+				<div class="squeeze-card" class:squeeze={item.rating === 'SQUEEZE'} class:hot={item.rating === 'HOT'} class:holding={item.is_holding}>
 					<div class="card-rank">#{i + 1}</div>
 					<div class="card-main">
 						<div class="card-header">
 							<div class="ticker-section">
 								<a href="/stock/{item.ticker}" class="ticker" title={item.company_name || item.ticker}>{item.ticker}</a>
+								{#if item.market_cap_tier && item.market_cap_tier !== 'Unknown'}
+									<span class="badge tier">{item.market_cap_tier}</span>
+								{/if}
 								{#if item.is_holding}
 									<span class="badge holding">보유</span>
 								{/if}
@@ -189,7 +210,26 @@
 									{formatNumber(item.float_shares)}
 								</span>
 							</div>
+							<div class="metric" title="5일 변화율">
+								<span class="label">5D</span>
+								<span class="value" class:momentum-up={item.price_change_5d && item.price_change_5d > 10} class:momentum-down={item.price_change_5d && item.price_change_5d < -10}>
+									{item.price_change_5d ? (item.price_change_5d > 0 ? '+' : '') + item.price_change_5d.toFixed(0) + '%' : '-'}
+								</span>
+							</div>
+							<div class="metric" title="거래량 배수">
+								<span class="label">VOL</span>
+								<span class="value" class:high={item.vol_ratio && item.vol_ratio > 3}>
+									{item.vol_ratio ? item.vol_ratio.toFixed(1) + 'x' : '-'}
+								</span>
+							</div>
 						</div>
+
+						{#if item.market_cap}
+							<div class="market-cap-row">
+								<span class="mc-label">MCap</span>
+								<span class="mc-value">{formatMarketCap(item.market_cap)}</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{/each}
@@ -202,48 +242,54 @@
 	<div class="modal-overlay" onclick={() => showScoreModal = false}>
 		<div class="modal" onclick={(e) => e.stopPropagation()}>
 			<div class="modal-header">
-				<h2>스코어 계산법</h2>
+				<h2>스코어 v4 계산법</h2>
 				<button class="close-btn" onclick={() => showScoreModal = false}>&times;</button>
 			</div>
 			<div class="modal-body">
-				<div class="score-section">
-					<h3>Base Score (0-60점)</h3>
+				<div class="score-info">
+					<h3>1단계: 시가총액 가중치</h3>
 					<ul>
-						<li><strong>SI</strong> Short Interest: 0-25점 (50%+ = 만점)</li>
-						<li><strong>BR</strong> Borrow Rate: 0-20점 (200%+ = 만점)</li>
-						<li><strong>DTC</strong> Days to Cover: 0-15점 (10일+ = 만점)</li>
+						<li><strong>Nano</strong> &lt;$100M: x1.0</li>
+						<li><strong>Micro</strong> $100-500M: x0.85</li>
+						<li><strong>Small</strong> $500M-2B: x0.6</li>
+						<li><strong>Mid/Large</strong> &gt;$2B: x0.3</li>
 					</ul>
 				</div>
-				<div class="score-section">
-					<h3>Squeeze Pressure Bonus (0-25점)</h3>
+				<div class="score-info">
+					<h3>A. 공급 압박 (max 35)</h3>
 					<ul>
-						<li><strong>ZB</strong> Zero Borrow: +10점</li>
-						<li>Low Float (&lt;10M): +5점</li>
-						<li><strong>DP</strong> Warrant/Covenant: +10점</li>
+						<li><strong>ZB</strong> Zero Borrow: +25</li>
+						<li>Hard to Borrow (BR&ge;100%): +12</li>
+						<li>BR 가산: 100%+ (+8) / 50%+ (+5) / 20%+ (+2)</li>
+						<li>Available 0: +5 / &lt;50K: +3</li>
 					</ul>
 				</div>
-				<div class="score-section">
-					<h3>Catalyst Bonus (0-10점)</h3>
+				<div class="score-info">
+					<h3>B. 숏 포지션 (max 25)</h3>
 					<ul>
-						<li><strong>PN</strong> Positive News (50건+): +10점</li>
+						<li>SI 40%+: +20 / 30%+: +15 / 20%+: +10 / 10%+: +5</li>
+						<li>DTC 7일+: +5 / 3일+: +3</li>
 					</ul>
 				</div>
-				<div class="score-section">
-					<h3>Risk Penalty (-15점)</h3>
+				<div class="score-info">
+					<h3>C. 촉매 & 모멘텀 (max 25)</h3>
 					<ul>
-						<li>Negative News (20건+): -15점</li>
+						<li>호재: +10 / 악재: -10 / 뉴스 없음: -5</li>
+						<li>5일 변화: 50%+ (+10) / 20%+ (+7) / 10%+ (+4)</li>
+						<li>거래량: 5x+ (+5) / 3x+ (+3) / 1.5x+ (+1)</li>
 					</ul>
 				</div>
-				<div class="score-section">
-					<h3>Urgency Bonus (0-15점)</h3>
+				<div class="score-info">
+					<h3>D. 구조적 보호 (max 15)</h3>
 					<ul>
-						<li>BR &gt; 300%: +10점</li>
-						<li>SI &gt; 40%: +5점</li>
+						<li>Float &lt;5M: +7 / &lt;10M: +4 / &lt;20M: +2</li>
+						<li><strong>DP</strong> 희석 보호: +3</li>
+						<li>RegSHO 등재: +5</li>
 					</ul>
 				</div>
 				<div class="rating-guide">
-					<h3>등급</h3>
-					<p>🔥 HOT: 60점+ | 👀 WATCH: 40-59점 | ❄️ COLD: 40점 미만</p>
+					<h3>등급 = Raw Score x 시가총액 가중치</h3>
+					<p>🚀 SQUEEZE: 75+ | 🔥 HOT: 55-74 | 👀 WATCH: 35-54 | ❄️ COLD: &lt;35</p>
 				</div>
 			</div>
 		</div>
@@ -280,6 +326,11 @@
 		border-radius: 4px;
 		font-size: 0.75rem;
 		font-weight: 600;
+	}
+
+	.stat.squeeze {
+		background: rgba(168, 85, 247, 0.2);
+		color: #a855f7;
 	}
 
 	.stat.hot {
@@ -377,6 +428,11 @@
 		overflow: hidden;
 	}
 
+	.squeeze-card.squeeze {
+		border-color: #a855f7;
+		box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+	}
+
 	.squeeze-card.hot {
 		border-color: #f85149;
 		box-shadow: 0 0 10px rgba(248, 81, 73, 0.2);
@@ -395,6 +451,11 @@
 		font-weight: 700;
 		color: #8b949e;
 		font-size: 0.8rem;
+	}
+
+	.squeeze-card.squeeze .card-rank {
+		background: rgba(168, 85, 247, 0.2);
+		color: #a855f7;
 	}
 
 	.squeeze-card.hot .card-rank {
@@ -464,6 +525,12 @@
 		color: #f85149;
 	}
 
+	.badge.tier {
+		background: rgba(139, 148, 158, 0.2);
+		color: #8b949e;
+		font-size: 0.55rem;
+	}
+
 	.score-section {
 		display: flex;
 		flex-direction: column;
@@ -520,6 +587,30 @@
 
 	.metric .value.low {
 		color: #3fb950;
+	}
+
+	.metric .value.momentum-up {
+		color: #3fb950;
+	}
+
+	.metric .value.momentum-down {
+		color: #f85149;
+	}
+
+	.market-cap-row {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+		font-size: 0.7rem;
+		color: #8b949e;
+	}
+
+	.mc-label {
+		color: #6e7681;
+	}
+
+	.mc-value {
+		color: #8b949e;
 	}
 
 	/* Title row with info button */
@@ -604,24 +695,24 @@
 		padding: 1rem;
 	}
 
-	.score-section {
+	.score-info {
 		margin-bottom: 1rem;
 	}
 
-	.score-section h3 {
+	.score-info h3 {
 		font-size: 0.85rem;
 		color: #58a6ff;
 		margin: 0 0 0.5rem 0;
 	}
 
-	.score-section ul {
+	.score-info ul {
 		margin: 0;
 		padding-left: 1.25rem;
 		font-size: 0.8rem;
 		color: #c9d1d9;
 	}
 
-	.score-section li {
+	.score-info li {
 		margin-bottom: 0.25rem;
 	}
 

@@ -212,10 +212,13 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | days_to_cover | numeric | DTC |
 | available_shares | bigint | 대차 가능 수량 |
 | float_shares | bigint | 유통주식수 |
-| squeeze_score | numeric | 스퀴즈 점수 |
+| squeeze_score | numeric | 스퀴즈 점수 (v4: 시가총액 가중치 적용) |
 | dilution_protected | boolean | 희석 방어 여부 |
 | has_positive_news | boolean | 호재 여부 |
 | has_negative_news | boolean | 악재 여부 |
+| market_cap | bigint | 시가총액 (v4) |
+| price_change_5d | decimal(10,2) | 5일 가격 변화율 % (v4) |
+| vol_ratio | decimal(10,2) | 거래량/평균거래량 배수 (v4) |
 
 #### exchange_rates
 | 컬럼 | 타입 | 설명 |
@@ -534,50 +537,51 @@ sudo systemctl restart stock-api
 
 ---
 
-## 스퀴즈 점수 계산 로직
+## 스퀴즈 점수 계산 로직 (v4 - 시가총액 가중치)
 
 ```
-총점 = Base Score + Bonuses - Penalties (최대 100점)
+최종점수 = Raw Score × 시가총액 가중치 (최대 100점)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Base Score (0-60점)
+1단계: 시가총액 가중치 (Market Cap Multiplier)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├─ Short Interest (0-25점)
-│   └─ 50%+ = 25점, 비례 계산
-├─ Borrow Rate (0-20점)
-│   └─ 200%+ = 20점, 비례 계산
-└─ Days to Cover (0-15점)
-    └─ 10일+ = 15점, 비례 계산
+├─ Nano (<$100M):       ×1.0
+├─ Micro ($100M-$500M): ×0.85
+├─ Small ($500M-$2B):   ×0.6
+└─ Mid/Large (>$2B):    ×0.3
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Squeeze Pressure Bonus (0-25점)
+2단계: Raw Score (0-100)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├─ Zero Borrow (대차 불가): +10점
-├─ Low Float (<10M): +5점
-└─ Dilution Protected (워런트/약정): +10점
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Catalyst Bonus (0-10점)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-└─ Positive News (SEC 호재 50건+): +10점
+A. 공급 압박 (Supply Constraint) — max 35
+├─ Zero Borrow: +25
+├─ Hard to Borrow (BR≥100%): +12
+├─ BR 가산: 100%+(+8) / 50%+(+5) / 20%+(+2)
+├─ Available=0: +5 / <50K: +3
+└─ (ZB + BR가산 + Avail → cap 35)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Risk Penalty (-15점)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-└─ Negative News (SEC 악재 20건+): -15점
+B. 숏 포지션 압력 (Short Pressure) — max 25
+├─ SI: 40%+(+20) / 30%+(+15) / 20%+(+10) / 10%+(+5)
+└─ DTC: 7일+(+5) / 3일+(+3)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Urgency Bonus (0-15점)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-├─ Borrow Rate > 300%: +10점
-└─ Short Interest > 40%: +5점
+C. 촉매 & 모멘텀 (Catalyst & Momentum) — max 25
+├─ 호재: +10 / 악재: -10 / 뉴스없음: -5
+├─ 5일변화: 50%+(+10) / 20%+(+7) / 10%+(+4) / 5%+(+2)
+└─ 거래량: 5x+(+5) / 3x+(+3) / 1.5x+(+1)
+
+D. 구조적 보호 (Structural) — max 15
+├─ Float: <5M(+7) / <10M(+4) / <20M(+2)
+├─ 희석 보호 (S-3/워런트 없음): +3
+└─ RegSHO 등재: +5
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 등급 분류
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HOT   : 60점 이상 (빨강)
-WATCH : 40-59점 (주황)
-COLD  : 40점 미만 (회색)
+SQUEEZE : 75점 이상 (보라)
+HOT     : 55-74점 (빨강)
+WATCH   : 35-54점 (주황)
+COLD    : 35점 미만 (회색)
 ```
 
 ---
