@@ -37,6 +37,8 @@
 	let error = $state('');
 	let filterRating = $state('all');
 	let showScoreModal = $state(false);
+	let showAll = $state(false);
+	const TOP_N = 10;
 
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
 
@@ -96,7 +98,8 @@
 	}
 
 	$effect(() => {
-		// Filter logic handled in template
+		filterRating;
+		showAll = false;
 	});
 </script>
 
@@ -149,11 +152,12 @@
 		<div class="loading">로딩 중...</div>
 	{:else if data}
 		<div class="squeeze-list">
-			{#each data.squeeze_list.filter(item => {
+			{@const filtered = data.squeeze_list.filter(item => {
 				if (filterRating === 'all') return true;
 				if (filterRating === 'holding') return item.is_holding;
 				return item.rating === filterRating;
-			}) as item, i}
+			})}
+			{#each (showAll ? filtered : filtered.slice(0, TOP_N)) as item, i}
 				<div class="squeeze-card" class:squeeze={item.rating === 'SQUEEZE'} class:hot={item.rating === 'HOT'} class:holding={item.is_holding}>
 					<div class="card-rank">#{i + 1}</div>
 					<div class="card-main">
@@ -233,6 +237,12 @@
 					</div>
 				</div>
 			{/each}
+
+			{#if !showAll && filtered.length > TOP_N}
+				<button class="show-more-btn" onclick={() => showAll = true}>
+					+{filtered.length - TOP_N}개 더보기
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -611,6 +621,23 @@
 
 	.mc-value {
 		color: #8b949e;
+	}
+
+	.show-more-btn {
+		width: 100%;
+		padding: 0.75rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #8b949e;
+		font-size: 0.85rem;
+		cursor: pointer;
+		margin-top: 0.5rem;
+	}
+
+	.show-more-btn:hover {
+		background: #30363d;
+		color: #c9d1d9;
 	}
 
 	/* Title row with info button */
