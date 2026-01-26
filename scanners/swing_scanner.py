@@ -6,11 +6,12 @@ scanners/swing_scanner.py - 스윙 스캐너
 점수 체계 (0-100):
 | 항목          | max | 기준                              |
 |--------------|-----|----------------------------------|
-| RSI 과매도    | 25  | 25-40=25, 40-55=15, <25=10       |
-| MACD 크로스   | 20  | 골든=20, 시그널위=10              |
-| MA 위치       | 20  | MA20 돌파=20, 지지=15, 50일위=10  |
-| 촉매          | 25  | 섹터뉴스+FDA+옵션 (cap 25)        |
+| RSI 과매도    | 22  | 25-40=22, 40-55=13, <25=9        |
+| MACD 크로스   | 18  | 골든=18, 시그널위=9               |
+| MA 위치       | 18  | MA20 돌파=18, 지지=14, 50일위=9   |
+| 촉매          | 22  | 섹터뉴스+FDA+옵션 (cap 22)        |
 | Max Pain     | 10  | 현재가<MP=10, 위=-5              |
+| SEC 공시 패턴 | 10  | 13D+8K+S8 (0-20 → 0-10 스케일)   |
 | 합계          | 100 |                                   |
 """
 
@@ -27,6 +28,7 @@ from lib import (
     get_financial_catalysts,
     get_options_data,
 )
+from lib.sec_patterns import get_cached_patterns
 
 
 def _calculate_rsi(prices: pd.Series, period: int = 14) -> float:
@@ -150,8 +152,8 @@ def analyze(ticker: str) -> Optional[dict]:
         except Exception:
             pass
 
-        # cap catalyst at 25
-        catalyst_score = min(catalyst_score, 25)
+        # cap catalyst at 22
+        catalyst_score = min(catalyst_score, 22)
 
         # ========== 옵션 Max Pain ==========
         max_pain = None
@@ -173,33 +175,46 @@ def analyze(ticker: str) -> Optional[dict]:
         # ========== 스윙 점수 계산 (0-100) ==========
         score = 0.0
 
-        # 1. RSI 과매도 (max 25)
+        # 1. RSI 과매도 (max 22)
         if 25 <= rsi <= 40:
-            score += 25
+            score += 22
         elif 40 < rsi <= 55:
-            score += 15
+            score += 13
         elif rsi < 25:
-            score += 10
+            score += 9
 
-        # 2. MACD 크로스 (max 20)
+        # 2. MACD 크로스 (max 18)
         if macd_cross == 'golden':
-            score += 20
+            score += 18
         elif macd_val > signal_val:
-            score += 10
+            score += 9
 
-        # 3. MA 위치 (max 20)
+        # 3. MA 위치 (max 18)
         if current_price > ma20 and current_price < ma20 * 1.05:
-            score += 20  # MA20 돌파 직후
+            score += 18  # MA20 돌파 직후
         elif current_price > ma20 * 0.95 and current_price <= ma20:
-            score += 15  # MA20 지지 테스트
+            score += 14  # MA20 지지 테스트
         elif current_price > ma50:
-            score += 10  # 50일선 위
+            score += 9  # 50일선 위
 
-        # 4. 촉매 (max 25, already capped)
+        # 4. 촉매 (max 22, already capped)
         score += catalyst_score
 
         # 5. Max Pain (max 10)
         score += max_pain_score
+
+        # 6. SEC 공시 패턴 (max 10)
+        sec_signals = []
+        try:
+            patterns = get_cached_patterns(ticker)
+            if patterns and patterns.get('sec_pattern_score', 0) > 0:
+                raw = patterns['sec_pattern_score']  # 0-20
+                sec_score = min(round(raw * 10 / 20), 10)
+                score += sec_score
+                sec_signals = patterns.get('signals', [])
+                catalyst_signals.extend(sec_signals)
+        except Exception:
+            pass
 
         # 하한 클램프
         score = max(score, 0)
@@ -225,6 +240,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'catalyst_signals': catalyst_signals,
             'max_pain': round(max_pain, 2) if max_pain else None,
             'options_signal': options_signal,
+            'sec_signals': sec_signals if sec_signals else None,
             'recommended_entry': round(current_price * 0.95, 2),
             'stop_loss': round(support * 0.95, 2),
             'target': round(resistance * 0.95, 2),

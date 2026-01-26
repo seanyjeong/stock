@@ -2,7 +2,7 @@
 scanners/screener.py - 종목 풀 소싱
 
 각 스캐너 유형별 후보 종목 목록 제공:
-- 단타: news_collector DB에서 뉴스 핫 종목
+- 단타: news_collector DB에서 뉴스 핫 종목 + SEC 13D 후보
 - 스윙: Finviz 스크리너 (중형주+과매도+풀백) + SWING_UNIVERSE fallback
 - 장기: LONGTERM_UNIVERSE (고정 대형 배당주)
 """
@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from psycopg2.extras import RealDictCursor
 
 from db import get_db
+from lib.sec_patterns import discover_new_13d_filings
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
@@ -55,8 +56,35 @@ SWING_UNIVERSE = [
 ]
 
 
+def get_sec_13d_candidates(days: int = 30) -> list[str]:
+    """SEC 13D RSS에서 최근 대량보유 신고 종목 수집"""
+    try:
+        # DB 캐시 먼저 확인
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT DISTINCT ticker FROM sec_filing_patterns
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '%s days'
+              AND has_13d = TRUE
+              AND sec_pattern_score > 0
+        """, (days,))
+        cached = [row['ticker'] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+
+        # RSS 디스커버리 병합
+        new_13d = discover_new_13d_filings()
+        all_tickers = list(set(cached + new_13d))
+        if all_tickers:
+            print(f"  SEC 13D 후보: {len(all_tickers)}개 ({len(cached)} 캐시 + {len(new_13d)} RSS)")
+        return all_tickers
+    except Exception as e:
+        print(f"  SEC 13D 후보 조회 실패: {e}")
+        return []
+
+
 def get_day_candidates(limit: int = 50) -> list:
-    """뉴스 점수 상위 종목 조회 (news_collector DB)"""
+    """뉴스 점수 상위 종목 + SEC 13D 후보 조회"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -71,6 +99,18 @@ def get_day_candidates(limit: int = 50) -> list:
     results = cur.fetchall()
     cur.close()
     conn.close()
+
+    # SEC 13D 후보 병합 (뉴스 없어도 13D 패턴이면 포함)
+    existing_tickers = {r['ticker'] for r in results}
+    sec_candidates = get_sec_13d_candidates()
+    for ticker in sec_candidates:
+        if ticker not in existing_tickers:
+            results.append({
+                'ticker': ticker,
+                'total_score': 0,
+                'positive_count': 0,
+                'negative_count': 0,
+            })
 
     return results
 

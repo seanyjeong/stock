@@ -473,9 +473,20 @@ def main():
 
     all_news = []
 
-    # 1. SEC EDGAR 수집
+    # 1. SEC EDGAR 8-K 수집
     sec_news = fetch_sec_edgar()
     all_news.extend(sec_news)
+
+    # 1.5 SEC 13D 디스커버리 (신규)
+    new_13d = []
+    try:
+        from lib.sec_patterns import discover_new_13d_filings, init_sec_patterns_table
+        init_sec_patterns_table()
+        new_13d = discover_new_13d_filings()
+        if new_13d:
+            print(f"  13D 신규 발견: {new_13d}")
+    except Exception as e:
+        print(f"  13D 디스커버리 스킵: {e}")
 
     # 2. 트렌딩 종목별 뉴스 수집
     tickers = get_trending_tickers()
@@ -519,7 +530,16 @@ def main():
     except Exception as e:
         print(f"  ⚠️ 뉴스 벡터화 스킵 (기존 파이프라인 정상): {e}")
 
-    # 6. 상위 종목 출력
+    # 6. SEC 패턴 배치 분석
+    try:
+        from lib.sec_patterns import collect_sec_patterns
+        all_tickers = list(set(tickers + new_13d))
+        if all_tickers:
+            collect_sec_patterns(all_tickers)
+    except Exception as e:
+        print(f"  SEC 패턴 분석 스킵: {e}")
+
+    # 7. 상위 종목 출력
     top = get_top_buzz(10)
     if top:
         print("\n🔥 뉴스 점수 TOP 10:")

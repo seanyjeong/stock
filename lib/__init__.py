@@ -58,3 +58,9 @@ from lib.news_vectors import (
     cleanup_old_news, calculate_time_weights, get_time_weighted_score,
     search_similar_news,
 )
+
+# sec_patterns
+from lib.sec_patterns import (
+    analyze_sec_patterns, get_cached_patterns, collect_sec_patterns,
+    discover_new_13d_filings, init_sec_patterns_table,
+)

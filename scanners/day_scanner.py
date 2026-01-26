@@ -6,13 +6,14 @@ scanners/day_scanner.py - 단타 스캐너
 점수 체계 (0-100):
 | 항목          | max | 기준                              |
 |--------------|-----|----------------------------------|
-| 거래량 급증    | 25  | >5x=25, >3x=20, >2x=15, >1.5x=10 |
-| RSI 반등      | 20  | 30-45=20, 25-30=15, 45-60=10      |
-| MACD 크로스   | 15  | 골든=15, 양수전환=10, 시그널위=5    |
-| ATR 변동성    | 10  | 3-8%=10, 2-3%=7, >8%=3           |
-| 뉴스 촉매     | 15  | >10점=15, >5점=10, >0점=5          |
+| 거래량 급증    | 22  | >5x=22, >3x=18, >2x=13, >1.5x=9  |
+| RSI 반등      | 18  | 30-45=18, 25-30=14, 45-60=9       |
+| MACD 크로스   | 13  | 골든=13, 양수전환=9, 시그널위=4     |
+| ATR 변동성    | 9   | 3-8%=9, 2-3%=6, >8%=3            |
+| 뉴스 촉매     | 12  | >10점=12, >5점=8, >0점=4           |
 | 모멘텀        | 5   | 전일대비 갭업/연속상승               |
 | 숏스퀴즈 보너스| 10  | SI+RegSHO+ZB+FTD (cap 10)        |
+| SEC 공시 패턴 | 11  | 13D+8K+S8 (0-20 → 0-11 스케일)    |
 | 합계          | 100 |                                   |
 """
 
@@ -23,6 +24,7 @@ import pandas as pd
 import numpy as np
 
 from lib import get_short_history, get_ftd_data, check_regsho, get_borrow_data
+from lib.sec_patterns import get_cached_patterns
 
 
 def _calculate_rsi(prices: pd.Series, period: int = 14) -> float:
@@ -183,58 +185,58 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         score = 0.0
         signal_tags = []  # 추천 사유 태그
 
-        # 1. 거래량 급증 (max 25)
+        # 1. 거래량 급증 (max 22)
         if volume_ratio > 5:
-            score += 25
+            score += 22
             signal_tags.append(f"거래량 {volume_ratio:.0f}배↑")
         elif volume_ratio > 3:
-            score += 20
+            score += 18
             signal_tags.append(f"거래량 {volume_ratio:.0f}배↑")
         elif volume_ratio > 2:
-            score += 15
+            score += 13
             signal_tags.append(f"거래량 {volume_ratio:.1f}배↑")
         elif volume_ratio > 1.5:
-            score += 10
+            score += 9
             signal_tags.append(f"거래량 {volume_ratio:.1f}배↑")
 
-        # 2. RSI 반등 (max 20)
+        # 2. RSI 반등 (max 18)
         if 30 <= rsi <= 45:
-            score += 20
+            score += 18
             signal_tags.append("RSI 반등")
         elif 25 <= rsi < 30:
-            score += 15
+            score += 14
             signal_tags.append("RSI 과매도")
         elif 45 < rsi <= 60:
-            score += 10
+            score += 9
 
-        # 3. MACD 크로스 (max 15)
+        # 3. MACD 크로스 (max 13)
         if macd_cross == 'golden':
-            score += 15
+            score += 13
             signal_tags.append("골든크로스")
         elif macd_val > signal_val and macd_val > 0:
-            score += 10
+            score += 9
             signal_tags.append("MACD 양전환")
         elif macd_val > signal_val:
-            score += 5
+            score += 4
 
-        # 4. ATR 변동성 (max 10)
+        # 4. ATR 변동성 (max 9)
         atr_pct = (atr / current_price) * 100 if current_price > 0 else 0
         if 3 <= atr_pct <= 8:
-            score += 10
+            score += 9
         elif 2 <= atr_pct < 3:
-            score += 7
+            score += 6
         elif atr_pct > 8:
             score += 3
 
-        # 5. 뉴스 촉매 (max 15)
+        # 5. 뉴스 촉매 (max 12)
         if news_score > 10:
-            score += 15
+            score += 12
             signal_tags.append("뉴스 촉매")
         elif news_score > 5:
-            score += 10
+            score += 8
             signal_tags.append("뉴스 촉매")
         elif news_score > 0:
-            score += 5
+            score += 4
 
         # 6. 모멘텀 (max 5)
         if day_change_pct > 5:
@@ -250,6 +252,19 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         if squeeze_score > 0:
             score += squeeze_score
             signal_tags.append("스퀴즈")
+
+        # 8. SEC 공시 패턴 (max 11)
+        sec_signals = []
+        try:
+            patterns = get_cached_patterns(ticker)
+            if patterns and patterns.get('sec_pattern_score', 0) > 0:
+                raw = patterns['sec_pattern_score']  # 0-20
+                sec_score = min(round(raw * 11 / 20), 11)
+                score += sec_score
+                sec_signals = patterns.get('signals', [])
+                signal_tags.extend(sec_signals)
+        except Exception:
+            pass
 
         if score < 30:
             return None
@@ -281,6 +296,10 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         if squeeze_score > 0:
             result['squeeze_score'] = squeeze_score
             result['squeeze_signals'] = squeeze_signals
+
+        # SEC 패턴 정보
+        if sec_signals:
+            result['sec_signals'] = sec_signals
 
         return result
 

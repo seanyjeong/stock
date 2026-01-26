@@ -75,6 +75,10 @@ P/E: {result.get('pe_ratio', 'N/A')}
 섹터: {result.get('sector', 'N/A')}
 """
 
+    # SEC 공시 시그널 (단타/스윙 공통)
+    if result.get('sec_signals'):
+        prompt += f"SEC 공시 신호: {', '.join(result['sec_signals'])}\n"
+
     try:
         response = gemini_client.models.generate_content(
             model='gemini-2.0-flash',

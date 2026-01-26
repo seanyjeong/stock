@@ -94,7 +94,8 @@ sudo journalctl -u stock-api -f    # 로그 확인
 │   ├── institutional.py     # 기관 보유, 동종업체 비교
 │   ├── social.py            # Stocktwits/Reddit 센티먼트
 │   ├── darkpool.py          # 다크풀/숏볼륨
-│   └── news_vectors.py      # 뉴스 벡터 DB (임베딩/중복감지/유사연결)
+│   ├── news_vectors.py      # 뉴스 벡터 DB (임베딩/중복감지/유사연결)
+│   └── sec_patterns.py      # SEC 공시 패턴 분석 (13D/8-K/S-8)
 ├── scanners/                 # 스캐너 시스템 (v3)
 │   ├── runner.py            # CLI 오케스트레이터
 │   ├── screener.py          # 종목 풀 소싱 (뉴스/Finviz/고정)
@@ -233,6 +234,7 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | available_shares | bigint | 대차 가능 수량 |
 | float_shares | bigint | 유통주식수 |
 | squeeze_score | numeric | 스퀴즈 점수 (v4: 시가총액 가중치 적용) |
+| zero_borrow | boolean | Zero Borrow 여부 |
 | dilution_protected | boolean | 희석 방어 여부 |
 | has_positive_news | boolean | 호재 여부 |
 | has_negative_news | boolean | 악재 여부 |
@@ -306,6 +308,39 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | embedding | vector(768) | Gemini 임베딩 (pgvector) |
 | created_at | timestamp | 생성일 |
 | updated_at | timestamp | 수정일 |
+
+### SEC 공시 패턴
+
+#### sec_filing_patterns
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| ticker | varchar(10) | 종목 티커 |
+| scan_date | date | 스캔 날짜 (UNIQUE with ticker) |
+| has_13d | boolean | SC 13D 대량보유 신고 여부 |
+| whale_name | text | 대량보유자명 |
+| whale_pct | float | 보유 비율 (%) |
+| is_accumulating | boolean | 신규 매집 (13D) |
+| is_exiting | boolean | 지분 감소 (13D/A) |
+| has_ceo_change | boolean | 임원 변경 (8-K 5.02) |
+| has_acquisition | boolean | 인수/계약 (8-K 1.01/2.01) |
+| has_theme_pivot | boolean | 테마전환 감지 |
+| theme_keywords | text[] | 테마 키워드 (AI, blockchain 등) |
+| event_density | integer | 30일 내 8-K 건수 |
+| s8_count_90d | integer | 90일 내 S-8 건수 |
+| cash_position | float | 현금 포지션 |
+| runway_quarters | float | 현금 소진 남은 분기 |
+| is_critical_burn | boolean | 2분기 미만 현금소진 |
+| sec_pattern_score | float | SEC 패턴 점수 (0-20) |
+| pump_probability | varchar(10) | 펌프 확률 (HIGH/MEDIUM/LOW/NONE) |
+| signals | text[] | 감지된 신호 목록 |
+| raw_data | jsonb | 원본 분석 데이터 |
+| created_at | timestamptz | 생성일 |
+
+> **SEC 패턴 점수 (0-20):**
+> - 13D 매집: max 7 (신규+5, 5%확인+2, 매도-3)
+> - 8-K 테마전환: max ~7 (CEO+인수 콤보+5, 테마+3, 밀도+2)
+> - S-8 + 현금소진: max 6 (콤보+4, S-8단독+2, 현금단독+2)
 
 ### 스캐너 시스템 (v2)
 
@@ -407,6 +442,17 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | price_alerts | boolean | 가격 알림 |
 | regsho_alerts | boolean | RegSHO 알림 |
 | blog_alerts | boolean | 블로그 알림 |
+| recommendation_alerts | boolean | 추천 종목 알림 |
+| version_alerts | boolean | 버전 업데이트 알림 |
+
+#### app_config
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| key | varchar(100) | PK |
+| value | text | 값 |
+| updated_at | timestamp | 수정일 |
+
+> 현재 사용 중인 키: `last_notified_version` (마지막 알림 발송 버전)
 
 #### push_subscriptions
 | 컬럼 | 타입 | 설명 |
@@ -801,12 +847,32 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v2.9.0
+- **프론트엔드**: v2.10.0
 - **deep_analyzer**: v4 (나스닥의 신)
-- **스캐너**: v3 (모듈 분리 + 카테고리별 MERGE)
+- **스캐너**: v3.1 (SEC 공시 패턴 통합)
 - **문서 업데이트**: 2026-01-26
 
 ## 변경 이력
+
+### 스캐너 v3.1 - SEC 공시 패턴 (2026-01-26)
+- `lib/sec_patterns.py` 신규 모듈 (13D 매집, 8-K 테마전환, S-8+현금소진)
+- `sec_filing_patterns` 테이블 추가 (0-20 SEC 패턴 점수)
+- 단타 스캐너: SEC 패턴 11점 추가 (기존 항목 비례 축소, 100점 유지)
+- 스윙 스캐너: SEC 패턴 10점 추가 (기존 항목 비례 축소, 100점 유지)
+- `news_collector.py`: 13D RSS 디스커버리 + 배치 SEC 패턴 수집
+- `screener.py`: 13D 후보 종목 풀 추가 (단타 후보에 병합)
+- `scoring.py`: Gemini AI 프롬프트에 SEC 공시 시그널 추가
+- 숏스퀴즈 보너스(10점) 변경 없음
+
+### v2.10.1 (2026-01-26)
+- **숏스퀴즈 점수 버그 수정**: `squeeze_data` 테이블에 `zero_borrow` 컬럼 추가
+  - 스캐너가 수집한 Zero Borrow 데이터를 DB에 저장
+  - API가 저장된 값 사용 (기존: `borrow_rate >= 999` 휴리스틱 제거)
+- **버전 알림 기능**: API 시작 시 package.json 버전 변경 감지 → 푸시 알림
+  - `app_config` 테이블 추가 (`last_notified_version`)
+  - `notification_settings`에 `version_alerts` 컬럼 추가
+  - 알림 설정 페이지에 "업데이트 알림" 토글 추가
+  - FastAPI lifespan으로 시작 시 버전 체크
 
 ### 뉴스 벡터 DB (2026-01-26)
 - `lib/news_vectors.py` 신규 모듈 (임베딩/중복감지/유사연결/시장반영/클린업)
