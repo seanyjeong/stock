@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	interface Props {
 		progress: number;
 		currentStep: string;
@@ -10,10 +12,30 @@
 
 	let { progress, currentStep, status, onClose, onDownload, errorMessage }: Props = $props();
 
+	// 부드러운 진행률 보간
+	let displayProgress = $state(0);
+	let interpolationInterval: ReturnType<typeof setInterval> | null = null;
+
+	$effect(() => {
+		const target = progress;
+		if (interpolationInterval) clearInterval(interpolationInterval);
+		interpolationInterval = setInterval(() => {
+			if (displayProgress < target) {
+				displayProgress = Math.min(displayProgress + 1, target);
+			} else {
+				if (interpolationInterval) clearInterval(interpolationInterval);
+			}
+		}, 80);
+	});
+
+	onDestroy(() => {
+		if (interpolationInterval) clearInterval(interpolationInterval);
+	});
+
 	// SVG 원형 프로그레스바 계산
 	const radius = 45;
 	const circumference = 2 * Math.PI * radius;
-	const strokeDashoffset = $derived(circumference - (progress / 100) * circumference);
+	const strokeDashoffset = $derived(circumference - (displayProgress / 100) * circumference);
 
 	function getStatusColor(): string {
 		switch (status) {
@@ -79,7 +101,7 @@
 				/>
 			</svg>
 			<div class="progress-text">
-				<span class="progress-value">{progress}%</span>
+				<span class="progress-value">{displayProgress}%</span>
 			</div>
 		</div>
 
@@ -103,7 +125,7 @@
 		{/if}
 
 		{#if status === 'running'}
-			<p class="hint-text">분석 중 다른 페이지로 이동해도 계속 진행됩니다</p>
+			<p class="hint-text">약 1분 정도 소요됩니다. 다른 페이지로 이동해도 계속 진행됩니다.</p>
 		{/if}
 	</div>
 </div>

@@ -510,7 +510,16 @@ def main():
     # 4. 일일 점수 집계
     calculate_daily_scores()
 
-    # 5. 상위 종목 출력
+    # 5. 뉴스 벡터화 + 중복 감지 + 시간 가중치
+    try:
+        from lib.news_vectors import embed_and_dedup as _embed_dedup, init_vector_tables as _init_vt, calculate_time_weights as _calc_tw
+        _init_vt()
+        _embed_dedup()
+        _calc_tw()
+    except Exception as e:
+        print(f"  ⚠️ 뉴스 벡터화 스킵 (기존 파이프라인 정상): {e}")
+
+    # 6. 상위 종목 출력
     top = get_top_buzz(10)
     if top:
         print("\n🔥 뉴스 점수 TOP 10:")

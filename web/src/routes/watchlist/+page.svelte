@@ -361,6 +361,7 @@
 				a.click();
 				window.URL.revokeObjectURL(url);
 				a.remove();
+				closeReportModal();
 			}
 		} catch {
 			alert('다운로드 실패');

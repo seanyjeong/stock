@@ -40,10 +40,36 @@
 	let showAll = $state(false);
 	const TOP_N = 10;
 
+	// 업데이트 상태
+	let squeezeSchedule = $state('');
+	let squeezeNextUpdate = $state('');
+
 	const API_BASE = browser ? (import.meta.env.VITE_API_URL || 'http://localhost:8000') : '';
+
+	function formatDateKST(dateStr: string | null): string {
+		if (!dateStr) return '';
+		return new Date(dateStr).toLocaleString('ko-KR', {
+			timeZone: 'Asia/Seoul',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		}) + ' KST';
+	}
 
 	onMount(async () => {
 		await loadData();
+		// 업데이트 스케줄 로드
+		try {
+			const res = await fetch(`${API_BASE}/api/data-status`);
+			if (res.ok) {
+				const status = await res.json();
+				if (status.squeeze) {
+					squeezeSchedule = status.squeeze.schedule;
+					squeezeNextUpdate = formatDateKST(status.squeeze.next_update);
+				}
+			}
+		} catch {}
 	});
 
 	async function loadData() {
@@ -129,6 +155,11 @@
 				<span class="stat hot">HOT {data.hot_count}</span>
 				<span class="stat total">전체 {data.total_count}</span>
 			</div>
+		{/if}
+		{#if squeezeSchedule || squeezeNextUpdate}
+			<p class="update-schedule">
+				🕐 {squeezeSchedule}{#if squeezeNextUpdate} &bull; 다음: {squeezeNextUpdate}{/if}
+			</p>
 		{/if}
 	</div>
 
@@ -319,9 +350,18 @@
 
 	.header {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
 		align-items: center;
+		gap: 0.25rem;
 		margin-bottom: 1rem;
+	}
+
+	.update-schedule {
+		width: 100%;
+		font-size: 0.7rem;
+		color: #6e7681;
+		margin: 0;
 	}
 
 	h1 {

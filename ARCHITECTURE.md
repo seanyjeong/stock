@@ -93,7 +93,8 @@ sudo journalctl -u stock-api -f    # 로그 확인
 │   ├── catalysts.py         # 바이오텍/자동차 등 촉매 (7개)
 │   ├── institutional.py     # 기관 보유, 동종업체 비교
 │   ├── social.py            # Stocktwits/Reddit 센티먼트
-│   └── darkpool.py          # 다크풀/숏볼륨
+│   ├── darkpool.py          # 다크풀/숏볼륨
+│   └── news_vectors.py      # 뉴스 벡터 DB (임베딩/중복감지/유사연결)
 ├── scanners/                 # 스캐너 시스템 (v3)
 │   ├── runner.py            # CLI 오케스트레이터
 │   ├── screener.py          # 종목 풀 소싱 (뉴스/Finviz/고정)
@@ -330,6 +331,41 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | positive_count | integer | 긍정 뉴스 수 |
 | negative_count | integer | 부정 뉴스 수 |
 
+### 뉴스 벡터 시스템
+
+#### news_vectors
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| news_mention_id | integer | FK → news_mentions (UNIQUE) |
+| ticker | varchar(10) | 종목 티커 |
+| headline_text | text | 헤드라인 원문 |
+| embedding | vector(768) | Gemini 임베딩 벡터 |
+| is_duplicate | boolean | 중복 여부 (cosine >0.95) |
+| duplicate_of_id | integer | FK → news_vectors (중복 원본) |
+| is_reflected | boolean | 시장 반영 여부 (+10% 상승) |
+| reflected_price_change | float | 반영 시 가격 변화율 |
+| reflected_at | timestamptz | 반영 시점 |
+| is_active | boolean | 활성 여부 (소프트 삭제) |
+| time_weight | float | 시간 가중치 (1.0→0.1, 7일간 선형 감소) |
+| created_at | timestamptz | 생성일 |
+
+#### news_links
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| source_id | integer | FK → news_vectors |
+| target_id | integer | FK → news_vectors |
+| similarity | float | 코사인 유사도 (0.7~0.95) |
+| created_at | timestamptz | 생성일 |
+
+> **벡터 시스템 로직:**
+> - news_collector.py 수집 후 자동 벡터화 (embed_and_dedup)
+> - cosine >0.95 → 중복, 0.7~0.95 → 유사 연결
+> - 시간 가중치: 7일간 1.0→0.1 선형 감소
+> - 시장 반영 (+10% 상승) → weight=0.0
+> - 30일 후 소프트 삭제, 90일 후 하드 삭제
+
 #### daily_scan_results
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
@@ -436,6 +472,7 @@ sudo journalctl -u stock-api -f    # 로그 확인
 ### 데이터
 | Method | Endpoint | 설명 |
 |--------|----------|------|
+| GET | `/api/data-status` | 각 데이터 소스 최종/다음 업데이트 시각 |
 | GET | `/api/regsho` | RegSHO 목록 |
 | GET | `/api/squeeze` | 스퀴즈 분석 |
 | GET | `/api/recommendations` | 추천 종목 (all_recommendations: 단타/스윙/장기) |
@@ -770,6 +807,13 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 - **문서 업데이트**: 2026-01-26
 
 ## 변경 이력
+
+### 뉴스 벡터 DB (2026-01-26)
+- `lib/news_vectors.py` 신규 모듈 (임베딩/중복감지/유사연결/시장반영/클린업)
+- `api/embeddings.py` 배치 임베딩 + google.genai API 수정 (content→contents)
+- `news_vectors`, `news_links` 테이블 추가 (pgvector 768차원)
+- `news_collector.py`에 자동 벡터화 연동 (기존 파이프라인 변경 없음)
+- 시맨틱 뉴스 검색, 시간 가중치, 시장 반영 체크 지원
 
 ### 스캐너 v3 (2026-01-26)
 - lib/ 공통 라이브러리 분리 (12개 모듈, deep_analyzer + 스캐너 공유)

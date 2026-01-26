@@ -147,19 +147,23 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
 	event.notification.close();
 
-	const url = event.notification.data || '/';
+	// Absolute URL ensures the browser recognizes it's within PWA scope
+	// and opens in the standalone PWA app instead of the browser
+	const urlPath = event.notification.data || '/';
+	const fullUrl = new URL(urlPath, self.location.origin).href;
 
 	event.waitUntil(
 		self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-			// Focus existing window if open
+			// Find existing PWA/browser window for this origin
 			for (const client of clients) {
-				if (client.url.includes(self.location.origin) && 'focus' in client) {
-					client.navigate(url);
+				if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+					client.navigate(fullUrl);
 					return client.focus();
 				}
 			}
-			// Open new window
-			return self.clients.openWindow(url);
+			// No existing window - openWindow with absolute URL
+			// On PWA-installed devices this opens in standalone mode
+			return self.clients.openWindow(fullUrl);
 		})
 	);
 });

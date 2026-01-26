@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import type { PageData } from './$types';
 	import RecommendationTabs from '$lib/components/RecommendationTabs.svelte';
@@ -126,6 +127,15 @@
 	}
 	let allRecs = $state<AllRecs | null>(null);
 	let selectedRecType = $state<'day_trade' | 'swing' | 'longterm'>('swing');
+
+	// 데이터 업데이트 상태
+	interface DataStatusItem {
+		updated_at: string | null;
+		schedule: string;
+		desc: string;
+		next_update: string;
+	}
+	let dataStatus = $state<Record<string, DataStatusItem> | null>(null);
 
 	$effect(() => {
 		if (browser) localStorage.setItem('blogExpanded', String(blogExpanded));
@@ -276,6 +286,16 @@
 
 		// 공지사항 팝업 체크
 		checkAnnouncementPopup();
+
+		// 데이터 업데이트 상태 로드
+		try {
+			const statusRes = await fetch(`${API_BASE}/api/data-status`);
+			if (statusRes.ok) {
+				dataStatus = await statusRes.json();
+			}
+		} catch (e) {
+			console.error('Failed to load data status:', e);
+		}
 	});
 
 	// Tax calculation (22% capital gains tax, 2.5M KRW deduction)
@@ -344,12 +364,22 @@
 		return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 	}
 
+	function formatStatusTime(key: 'day_trade' | 'swing' | 'longterm' | 'squeeze'): string {
+		if (!dataStatus?.[key]) return '';
+		const s = dataStatus[key];
+		const parts: string[] = [];
+		if (s.updated_at) {
+			parts.push(`최종: ${formatDate(s.updated_at)}`);
+		}
+		if (s.next_update) {
+			parts.push(`다음: ${formatDate(s.next_update)}`);
+		}
+		return parts.join(' \u2022 ');
+	}
+
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '-';
-		const date = new Date(dateStr);
-		// KST로 변환 (UTC+9)
-		const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
-		return kstDate.toLocaleString('ko-KR', {
+		return new Date(dateStr).toLocaleString('ko-KR', {
 			timeZone: 'Asia/Seoul',
 			month: 'short',
 			day: 'numeric',
@@ -626,14 +656,15 @@
 					</div>
 
 					<p class="rec-update-time">
-						{#if selectedRecType === 'day_trade'}
+						{#if dataStatus?.[selectedRecType]}
+							🕐 {formatStatusTime(selectedRecType)}
+						{:else if selectedRecType === 'day_trade'}
 							🕐 프리마켓 1시간 전 (17:30 KST)
 						{:else if selectedRecType === 'swing'}
-							🕐 장 마감 후 (09:00 KST)
+							🕐 장 마감 후 (09:10 KST)
 						{:else}
-							🕐 장 마감 후 (09:05 KST)
+							🕐 장 마감 후 (09:20 KST)
 						{/if}
-						{#if profileRecsUpdated} • 최종: {formatDate(profileRecsUpdated)}{/if}
 					</p>
 
 					<ProfileRecommendations
@@ -659,7 +690,7 @@
 
 			<!-- Legacy Recommendations Section -->
 			{#if recommendations && !profileRecs.length}
-				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} />
+				<RecommendationTabs {recommendations} {formatCurrency} {formatDate} initialTab={(['day_trade', 'swing', 'longterm'].includes($page.url.searchParams.get('type') ?? '')) ? $page.url.searchParams.get('type') as 'day_trade' | 'swing' | 'longterm' : undefined} />
 			{/if}
 
 			<!-- 공지사항은 팝업으로 표시 -->

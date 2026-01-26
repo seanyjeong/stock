@@ -6,9 +6,10 @@
 		recommendations: RecommendationsResponse;
 		formatCurrency: (value: number, currency?: 'USD' | 'KRW') => string;
 		formatDate: (dateStr: string | null) => string;
+		initialTab?: 'day_trade' | 'swing' | 'longterm';
 	}
 
-	let { recommendations, formatCurrency, formatDate }: Props = $props();
+	let { recommendations, formatCurrency, formatDate, initialTab }: Props = $props();
 
 	type TabType = 'day_trade' | 'swing' | 'longterm';
 
@@ -18,7 +19,7 @@
 		{ key: 'longterm', label: '장기', icon: 'target' }
 	];
 
-	let activeTab = $state<TabType>('day_trade');
+	let activeTab = $state<TabType>(initialTab ?? 'day_trade');
 
 	function getActiveRecommendations(): Recommendation[] {
 		const category = recommendations[activeTab];

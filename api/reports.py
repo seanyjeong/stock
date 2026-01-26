@@ -34,6 +34,7 @@ from deep_analyzer import (
     get_biotech_catalysts, parse_8k_content, calculate_squeeze_score_v3,
     analyze_with_gemini, get_finviz_news
 )
+from scanners.squeeze_scanner import calculate_squeeze_score_v4
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
@@ -306,9 +307,33 @@ async def run_analysis(job_id: str, ticker: str, user_id: int, include_portfolio
             logger.warning(f"Institutional holders failed: {e}")
             result_data["institutional_holders"] = []
 
-        # 19. 스퀴즈 점수 계산
+        # 19. 스퀴즈 점수 계산 (v4)
         update_job_progress(job_id, 88, "스퀴즈 점수 계산")
-        squeeze_score = calculate_squeeze_score_v3(basic_info, borrow_data, in_regsho, technicals)
+        v4_data = {
+            "zero_borrow": borrow_data.get("is_zero_borrow", False),
+            "borrow_rate": borrow_data.get("borrow_rate", 0),
+            "available_shares": borrow_data.get("available_shares"),
+            "short_interest": basic_info.get("short_pct_float", 0) or basic_info.get("short_percent", 0) or 0,
+            "days_to_cover": basic_info.get("days_to_cover", 0),
+            "has_positive_news": bool(result_data.get("news")),
+            "has_negative_news": False,
+            "price_change_5d": technicals.get("price_change_5d", 0) if technicals else 0,
+            "vol_ratio": technicals.get("vol_ratio", 1) if technicals else 1,
+            "float_shares": basic_info.get("float_shares", 0),
+            "dilution_protected": sec_info.get("dilution_protected", False) if sec_info else False,
+            "is_regsho": in_regsho.get("listed", False) if isinstance(in_regsho, dict) else bool(in_regsho),
+            "market_cap": basic_info.get("market_cap", 0),
+        }
+        raw_score, final_score = calculate_squeeze_score_v4(v4_data)
+        # v3 호환 dict 형태로 저장 (HTML 렌더에서 squeeze["score"] 사용)
+        squeeze_score_v3 = calculate_squeeze_score_v3(basic_info, borrow_data, in_regsho, technicals)
+        squeeze_score = {
+            "score": final_score,
+            "raw_score": raw_score,
+            "details": squeeze_score_v3.get("details", []),
+            "risks": squeeze_score_v3.get("risks", []),
+            "bullish": squeeze_score_v3.get("bullish", []),
+        }
         result_data["squeeze_score"] = squeeze_score
         await asyncio.sleep(0.1)
 
@@ -635,13 +660,16 @@ def render_report_html(ticker: str, data: dict) -> str:
     strengths = squeeze.get("strengths", []) or []
     weaknesses = squeeze.get("weaknesses", []) or []
 
-    # 등급
-    if score >= 60:
+    # v4 등급 기준
+    if score >= 75:
+        grade = "SQUEEZE"
+        grade_emoji = "🚀🚀🚀"
+    elif score >= 55:
         grade = "HOT"
-        grade_emoji = "🔥🔥🔥"
-    elif score >= 40:
-        grade = "WATCH"
         grade_emoji = "🔥🔥"
+    elif score >= 35:
+        grade = "WATCH"
+        grade_emoji = "👀"
     else:
         grade = "COLD"
         grade_emoji = "❄️"

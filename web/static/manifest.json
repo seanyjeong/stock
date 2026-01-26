@@ -3,6 +3,7 @@
   "short_name": "달러농장",
   "description": "미국 주식 포트폴리오 트래커",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0d1117",
   "theme_color": "#0d1117",

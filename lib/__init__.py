@@ -51,3 +51,10 @@ from lib.catalysts import (
     get_retail_catalysts, get_financial_catalysts, get_industrial_catalysts,
     get_realestate_catalysts,
 )
+
+# news_vectors
+from lib.news_vectors import (
+    init_vector_tables, embed_and_dedup, check_market_reflection,
+    cleanup_old_news, calculate_time_weights, get_time_weighted_score,
+    search_similar_news,
+)
