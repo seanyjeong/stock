@@ -600,10 +600,13 @@ sudo journalctl -u stock-api -f    # 로그 확인
 # 뉴스 수집 (17:00 KST = 08:00 UTC, 월-금)
 0 8 * * 1-5 cd ~/dailystockstory && uv run python scanners/news_collector.py
 
-# 단타 스캔 (17:30 KST = 08:30 UTC, 프리마켓 직전)
-30 8 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type day
+# 단타 스캔 (17:30 KST, 프리마켓 직전)
+30 17 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type day
 
-# 스윙 스캔 (06:00 KST = 21:00 UTC, 장 마감 직후)
+# 단타 스캔 2차 (22:00 KST, 프리마켓 중)
+0 22 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type day
+
+# 스윙 스캔 (09:10 KST, 장 마감 후)
 0 21 * * 1-5 cd ~/dailystockstory && uv run python -m scanners.runner --type swing
 
 # 장기 스캔 (06:05 KST = 21:05 UTC, 장 마감 직후)
@@ -847,12 +850,23 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v2.10.0
+- **프론트엔드**: v2.11.2
 - **deep_analyzer**: v4 (나스닥의 신)
 - **스캐너**: v3.1 (SEC 공시 패턴 통합)
-- **문서 업데이트**: 2026-01-26
+- **문서 업데이트**: 2026-01-28
 
 ## 변경 이력
+
+### v2.11.2 (2026-01-28)
+- **포트폴리오 한화 실시간 재계산**: 실시간 가격 변동 시 `value_krw`도 재계산
+- **환율 수집 개선**: Google Finance 스크래핑 → yfinance (`USDKRW=X`) 변경, Google fallback 유지
+- **단타 스캐너 2차 크론**: 22:00 KST 추가 (프리마켓 중 2차 스캔)
+
+### v2.11.1 (2026-01-28)
+- **CORS 에러 응답 헤더**: API 에러(500/401) 응답에 CORS 헤더 추가
+  - 에러 시 브라우저에서 실제 에러 내용 확인 가능 (기존: CORS 에러로만 표시)
+- **Mixed Content 방지**: `upgrade-insecure-requests` CSP 메타 태그 추가
+  - `http://` 요청 자동 → `https://` 변환
 
 ### 스캐너 v3.1 - SEC 공시 패턴 (2026-01-26)
 - `lib/sec_patterns.py` 신규 모듈 (13D 매집, 8-K 테마전환, S-8+현금소진)
