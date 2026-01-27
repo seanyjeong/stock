@@ -52,7 +52,7 @@
 	function getAuthHeaders() {
 		const token = localStorage.getItem('access_token');
 		if (!token) {
-			goto('/login');
+			goto('/login', { replaceState: true });
 			return {};
 		}
 		return {

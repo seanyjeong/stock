@@ -62,7 +62,7 @@
 	}
 
 	function handleLogin() {
-		goto('/login');
+		goto('/login', { replaceState: true });
 	}
 
 	function handleLogout() {
@@ -70,7 +70,7 @@
 		localStorage.removeItem('user');
 		isLoggedIn = false;
 		user = null;
-		goto('/login');
+		goto('/login', { replaceState: true });
 	}
 </script>
 

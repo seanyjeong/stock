@@ -28,7 +28,7 @@
 	function getAuthHeaders() {
 		const token = localStorage.getItem('access_token');
 		if (!token) {
-			goto('/login');
+			goto('/login', { replaceState: true });
 			return {};
 		}
 		return {
@@ -47,7 +47,7 @@
 			});
 
 			if (response.status === 401 || response.status === 403) {
-				goto('/login');
+				goto('/login', { replaceState: true });
 				return;
 			}
 

@@ -21,7 +21,7 @@
 		// Check if already logged in
 		const token = localStorage.getItem('access_token');
 		if (token) {
-			goto('/');
+			goto('/', { replaceState: true });
 		}
 	});
 
@@ -73,7 +73,7 @@
 
 				if (!profileData.has_profile) {
 					// No profile - redirect to survey first
-					goto('/survey');
+					goto('/survey', { replaceState: true });
 					return;
 				}
 			} catch {
@@ -82,11 +82,11 @@
 
 			// Check approval status
 			if (!data.user.is_approved) {
-				goto('/pending-approval');
+				goto('/pending-approval', { replaceState: true });
 				return;
 			}
 
-			goto('/');
+			goto('/', { replaceState: true });
 		} catch (e) {
 			error = e instanceof Error ? e.message : '로그인 중 오류가 발생했습니다';
 			window.history.replaceState({}, '', '/login');

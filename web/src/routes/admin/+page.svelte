@@ -82,7 +82,7 @@
 			}
 
 			if (response.status === 401) {
-				goto('/login');
+				goto('/login', { replaceState: true });
 				return;
 			}
 

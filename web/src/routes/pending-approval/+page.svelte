@@ -21,7 +21,7 @@
 			user = JSON.parse(userStr);
 			await loadProfile();
 		} else {
-			goto('/login');
+			goto('/login', { replaceState: true });
 		}
 	});
 
@@ -45,13 +45,13 @@
 	function handleLogout() {
 		localStorage.removeItem('access_token');
 		localStorage.removeItem('user');
-		goto('/login');
+		goto('/login', { replaceState: true });
 	}
 
 	async function checkApproval() {
 		const token = localStorage.getItem('access_token');
 		if (!token) {
-			goto('/login');
+			goto('/login', { replaceState: true });
 			return;
 		}
 
@@ -64,7 +64,7 @@
 				const data = await response.json();
 				if (data.is_approved) {
 					localStorage.setItem('user', JSON.stringify(data));
-					goto('/');
+					goto('/', { replaceState: true });
 				}
 			}
 		} catch (e) {

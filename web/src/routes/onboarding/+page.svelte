@@ -55,7 +55,7 @@
 		if (browser) {
 			localStorage.setItem('onboarding_completed', 'true');
 		}
-		goto('/');
+		goto('/', { replaceState: true });
 	}
 </script>
 

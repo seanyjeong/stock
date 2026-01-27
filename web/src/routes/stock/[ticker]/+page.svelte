@@ -327,7 +327,7 @@
 </svelte:head>
 
 <div class="container">
-	<button class="btn-back" onclick={() => goto('/watchlist')}>← 뒤로</button>
+	<button class="btn-back" onclick={() => history.length > 1 ? history.back() : goto('/')}>← 뒤로</button>
 
 	<div class="header">
 		<div class="ticker-info">

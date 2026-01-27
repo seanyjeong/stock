@@ -93,7 +93,7 @@
 		// Check if user is logged in
 		const token = localStorage.getItem('access_token');
 		if (!token) {
-			goto('/login');
+			goto('/login', { replaceState: true });
 		}
 
 		// Check if this is a retake
@@ -178,7 +178,7 @@
 	function goToNextPage() {
 		// If retaking survey, go to settings
 		if (isRetake) {
-			goto('/settings');
+			goto('/settings', { replaceState: true });
 			return;
 		}
 
@@ -187,12 +187,12 @@
 		if (userStr) {
 			const user = JSON.parse(userStr);
 			if (user.is_approved) {
-				goto('/');
+				goto('/', { replaceState: true });
 			} else {
-				goto('/pending-approval');
+				goto('/pending-approval', { replaceState: true });
 			}
 		} else {
-			goto('/pending-approval');
+			goto('/pending-approval', { replaceState: true });
 		}
 	}
 </script>
