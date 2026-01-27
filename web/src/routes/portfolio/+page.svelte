@@ -37,6 +37,7 @@
 	let holdings = $state<Holding[]>([]);
 	let trades = $state<Trade[]>([]);
 	let total = $state({ value_usd: 0, value_krw: 0, cost_usd: 0, gain_usd: 0, gain_pct: 0 });
+	let exchangeRate = $state(0);
 	let isLoading = $state(true);
 	let error = $state('');
 
@@ -118,13 +119,14 @@
 					return h;
 				});
 
-				// total 재계산
+				// total 재계산 (한화 포함)
 				const totalValue = holdings.reduce((sum, h) => sum + h.value, 0);
 				const totalCost = holdings.reduce((sum, h) => sum + (h.shares * h.avg_cost), 0);
 				const totalGain = totalValue - totalCost;
 				total = {
 					...total,
 					value_usd: totalValue,
+					value_krw: exchangeRate > 0 ? Math.round(totalValue * exchangeRate) : total.value_krw,
 					gain_usd: totalGain,
 					gain_pct: totalCost > 0 ? (totalGain / totalCost) * 100 : 0
 				};
@@ -189,6 +191,7 @@
 			const data = await response.json();
 			holdings = data.holdings;
 			total = data.total;
+			exchangeRate = data.exchange_rate || 0;
 		} catch (e) {
 			error = e instanceof Error ? e.message : '오류가 발생했습니다';
 		} finally {

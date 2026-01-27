@@ -139,22 +139,35 @@ async def collect_regSHO(page):
 # 환율 수집
 # ============================================================
 
-async def collect_exchange_rate(page):
-    """USD/KRW 환율 수집"""
-    url = "https://www.google.com/finance/quote/USD-KRW"
-    await page.goto(url)
-    await page.wait_for_timeout(2000)
+async def collect_exchange_rate(page=None):
+    """USD/KRW 환율 수집 (yfinance)"""
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker("USDKRW=X")
+        rate = ticker.fast_info.last_price
+        if rate and 1000 < rate < 2000:
+            print(f"  환율: $1 = ₩{rate:,.2f} (yfinance)")
+            return round(rate, 2)
+    except Exception as e:
+        print(f"  환율 yfinance 실패: {e}")
 
-    text = await page.inner_text("body")
+    # fallback: Google Finance 스크래핑
+    if page:
+        try:
+            url = "https://www.google.com/finance/quote/USD-KRW"
+            await page.goto(url)
+            await page.wait_for_timeout(2000)
+            text = await page.inner_text("body")
+            match = re.search(r'(\d{1,3}(?:,\d{3})*\.?\d*)\s*(?:KRW|원)', text)
+            if match:
+                rate = float(match.group(1).replace(',', ''))
+                print(f"  환율: $1 = ₩{rate:,.2f} (Google)")
+                return rate
+        except Exception as e:
+            print(f"  환율 Google 실패: {e}")
 
-    match = re.search(r'(\d{1,3}(?:,\d{3})*\.?\d*)\s*(?:KRW|원)', text)
-    if match:
-        rate = float(match.group(1).replace(',', ''))
-    else:
-        rate = 1450.0
-
-    print(f"  환율: $1 = ₩{rate:,.2f}")
-    return rate
+    print("  환율: $1 = ₩1450.00 (기본값)")
+    return 1450.0
 
 
 # ============================================================
