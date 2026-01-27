@@ -117,20 +117,34 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS 허용 오리진 (미들웨어 + 에러 응답 공용)
+ALLOWED_ORIGINS = [
+    "https://stock-six-phi.vercel.app",  # Vercel production
+    "http://localhost:5173",              # Local dev (Vite)
+    "http://localhost:3000",              # Local dev
+]
+
 # CORS middleware for frontend access
 # Note: allow_origins=["*"] is NOT compatible with allow_credentials=True
 # Must specify exact origins when using credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://stock-six-phi.vercel.app",  # Vercel production
-        "http://localhost:5173",              # Local dev (Vite)
-        "http://localhost:3000",              # Local dev
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _cors_headers(request: Request) -> dict:
+    """에러 응답에도 CORS 헤더를 포함시키기 위한 헬퍼"""
+    origin = request.headers.get("origin", "")
+    if origin in ALLOWED_ORIGINS:
+        return {
+            "access-control-allow-origin": origin,
+            "access-control-allow-credentials": "true",
+        }
+    return {}
 
 # Include auth router
 app.include_router(auth_router)
@@ -149,7 +163,7 @@ app.include_router(glossary_router)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with consistent format"""
+    """Handle HTTP exceptions with consistent format + CORS headers"""
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -158,12 +172,13 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "detail": exc.detail,
             "path": str(request.url.path),
         },
+        headers=_cors_headers(request),
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle unexpected exceptions with logging"""
+    """Handle unexpected exceptions with logging + CORS headers"""
     logger.error(
         f"Unhandled exception on {request.method} {request.url.path}: {exc}\n"
         f"{traceback.format_exc()}"
@@ -176,6 +191,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "detail": "Internal server error",
             "path": str(request.url.path),
         },
+        headers=_cors_headers(request),
     )
 
 
