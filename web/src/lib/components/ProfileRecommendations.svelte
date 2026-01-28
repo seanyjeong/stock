@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
 	import Icon from './Icons.svelte';
 	import RecommendationModal from './RecommendationModal.svelte';
@@ -47,9 +47,92 @@
 	let watchlistTickers = $state<string[]>([]);
 	let toastMessage = $state('');
 
+	// 실시간 가격
+	interface RealtimePrice {
+		current: number;
+		change_pct: number;
+		source?: string; // 'regular' | 'premarket' | 'afterhours'
+	}
+	let realtimePrices = $state<Record<string, RealtimePrice>>({});
+	let realtimeInterval: ReturnType<typeof setInterval> | null = null;
+
 	onMount(async () => {
 		await loadWatchlistTickers();
+		await fetchRealtimePrices();
+		// 30초마다 갱신
+		realtimeInterval = setInterval(fetchRealtimePrices, 30000);
 	});
+
+	onDestroy(() => {
+		if (realtimeInterval) clearInterval(realtimeInterval);
+	});
+
+	async function fetchRealtimePrices() {
+		if (!recommendations?.length) return;
+		const tickers = recommendations.map(r => r.ticker).join(',');
+		try {
+			const response = await fetch(`${API_BASE}/realtime/hybrid?tickers=${tickers}`);
+			if (response.ok) {
+				const data = await response.json();
+				realtimePrices = data.prices || {};
+			}
+		} catch {
+			// ignore
+		}
+	}
+
+	// 종가 대비 갭 계산
+	function getGapInfo(rec: ProfileRecommendation) {
+		const rt = realtimePrices[rec.ticker];
+		if (!rt || !rt.current || rt.source === 'regular') return null;
+
+		const closePrice = rec.current_price; // 스캐너 실행 시점 가격 = 종가
+		const gap = ((rt.current - closePrice) / closePrice) * 100;
+		return {
+			price: rt.current,
+			gap: gap,
+			source: rt.source // 'premarket' or 'afterhours'
+		};
+	}
+
+	// 실시간 기준 탈락 체크
+	function isDisqualified(rec: ProfileRecommendation): { disqualified: boolean; reason: string } {
+		const rt = realtimePrices[rec.ticker];
+		if (!rt || !rt.current) return { disqualified: false, reason: '' };
+
+		const currentPrice = rt.current;
+		const stopLoss = rec.stop_loss;
+		const entryPrice = rec.recommended_entry;
+
+		// 손절라인 근접 (5% 이내) 또는 이탈
+		const stopDistance = ((currentPrice - stopLoss) / stopLoss) * 100;
+		if (stopDistance <= 5) {
+			return { disqualified: true, reason: `손절라인 근접 (${stopDistance.toFixed(1)}%)` };
+		}
+		if (currentPrice < stopLoss) {
+			return { disqualified: true, reason: '손절라인 이탈' };
+		}
+
+		// 매수가 대비 너무 높아짐 (15% 이상 갭업) - 단타는 더 엄격 (10%)
+		const entryGap = ((currentPrice - entryPrice) / entryPrice) * 100;
+		const maxGap = profileType === 'aggressive' ? 10 : 15;
+		if (entryGap > maxGap) {
+			return { disqualified: true, reason: `매수가 이탈 (+${entryGap.toFixed(1)}%)` };
+		}
+
+		return { disqualified: false, reason: '' };
+	}
+
+	// 필터링된 추천 목록
+	let filteredRecommendations = $derived(
+		recommendations.filter(rec => {
+			const { disqualified } = isDisqualified(rec);
+			return !disqualified;
+		})
+	);
+
+	// 탈락된 종목 수
+	let disqualifiedCount = $derived(recommendations.length - filteredRecommendations.length);
 
 	async function loadWatchlistTickers() {
 		const token = browser ? localStorage.getItem('access_token') : null;
@@ -140,8 +223,15 @@
 			<p class="profile-desc">{getProfileInfo().desc} 추천 종목 <span class="update-time">장 마감 후 업데이트</span></p>
 		{/if}
 
+		{#if disqualifiedCount > 0}
+			<div class="disqualified-notice">
+				⚠️ {disqualifiedCount}종목 실시간 탈락 (손절/매수가 이탈)
+			</div>
+		{/if}
+
 		<div class="rec-list">
-			{#each recommendations as rec}
+			{#each filteredRecommendations as rec}
+				{@const gapInfo = getGapInfo(rec)}
 				<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 				<div class="rec-item" onclick={() => openModal(rec)}>
 					<div class="rec-header">
@@ -178,9 +268,18 @@
 
 					<div class="rec-prices">
 						<div class="price-item">
-							<span class="price-label">현재</span>
+							<span class="price-label">종가</span>
 							<span class="price-value">{formatCurrency(rec.current_price)}</span>
 						</div>
+						{#if gapInfo}
+							<div class="price-item gap" class:gap-up={gapInfo.gap > 0} class:gap-down={gapInfo.gap < 0}>
+								<span class="price-label">{gapInfo.source === 'premarket' ? 'PM' : 'AH'}</span>
+								<span class="price-value">
+									{formatCurrency(gapInfo.price)}
+									<span class="gap-pct">{gapInfo.gap > 0 ? '+' : ''}{gapInfo.gap.toFixed(1)}%</span>
+								</span>
+							</div>
+						{/if}
 						<div class="price-item entry">
 							<span class="price-label">매수가</span>
 							<span class="price-value">{formatCurrency(rec.recommended_entry)}</span>
@@ -190,6 +289,11 @@
 							<span class="price-value">{formatCurrency(rec.target)}</span>
 						</div>
 					</div>
+					{#if gapInfo && gapInfo.gap > 10}
+						<div class="gap-warning">⚠️ 갭업 주의: 매수가 조정 필요</div>
+					{:else if gapInfo && gapInfo.gap < -10}
+						<div class="gap-warning down">📉 갭다운: 추가 하락 주의</div>
+					{/if}
 
 					{#if rec.split_entries && rec.split_entries.length > 0}
 						<div class="split-entries">
@@ -435,7 +539,7 @@
 
 	.rec-prices {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
+		grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
 		gap: 0.4rem;
 		margin-bottom: 0.5rem;
 	}
@@ -474,6 +578,63 @@
 
 	.price-item.target .price-value {
 		color: #3fb950;
+	}
+
+	/* 장외가격 (PM/AH) */
+	.price-item.gap {
+		border: 1px solid #8b949e;
+	}
+
+	.price-item.gap-up {
+		border-color: #f85149;
+		background: rgba(248, 81, 73, 0.1);
+	}
+
+	.price-item.gap-up .price-value {
+		color: #f85149;
+	}
+
+	.price-item.gap-down {
+		border-color: #3fb950;
+		background: rgba(63, 185, 80, 0.1);
+	}
+
+	.price-item.gap-down .price-value {
+		color: #3fb950;
+	}
+
+	.gap-pct {
+		display: block;
+		font-size: 0.65rem;
+		font-weight: 700;
+	}
+
+	.gap-warning {
+		font-size: 0.7rem;
+		padding: 0.4rem 0.6rem;
+		background: rgba(248, 81, 73, 0.15);
+		border: 1px solid #f85149;
+		border-radius: 6px;
+		color: #f85149;
+		margin-bottom: 0.5rem;
+	}
+
+	.gap-warning.down {
+		background: rgba(63, 185, 80, 0.15);
+		border-color: #3fb950;
+		color: #3fb950;
+	}
+
+	/* 탈락 알림 */
+	.disqualified-notice {
+		font-size: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(248, 81, 73, 0.1);
+		border: 1px solid rgba(248, 81, 73, 0.3);
+		border-radius: 8px;
+		color: #f85149;
+		margin-bottom: 0.75rem;
+		text-align: center;
 	}
 
 	.rec-meta {
