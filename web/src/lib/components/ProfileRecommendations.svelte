@@ -52,11 +52,16 @@
 	});
 
 	async function loadWatchlistTickers() {
+		const token = browser ? localStorage.getItem('access_token') : null;
+		if (!token) return;
+
 		try {
-			const response = await fetch(`${API_BASE}/api/watchlist/`, { credentials: 'include' });
+			const response = await fetch(`${API_BASE}/api/watchlist/`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
 			if (response.ok) {
 				const data = await response.json();
-				watchlistTickers = data.items?.map((item: { ticker: string }) => item.ticker) || [];
+				watchlistTickers = data.watchlist?.map((item: { ticker: string }) => item.ticker) || [];
 			}
 		} catch {
 			// 로그인 안 된 경우 무시
@@ -64,17 +69,29 @@
 	}
 
 	async function addToWatchlist(ticker: string) {
+		const token = browser ? localStorage.getItem('access_token') : null;
+		if (!token) {
+			showToast('로그인이 필요합니다');
+			return;
+		}
+
 		try {
 			const response = await fetch(`${API_BASE}/api/watchlist/`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
 				body: JSON.stringify({ ticker })
 			});
 
 			if (response.ok) {
 				watchlistTickers = [...watchlistTickers, ticker];
 				showToast(`${ticker} 관심종목에 추가됨`);
+			} else if (response.status === 401) {
+				localStorage.removeItem('access_token');
+				localStorage.removeItem('user');
+				showToast('세션 만료. 다시 로그인해주세요');
 			} else {
 				const data = await response.json();
 				showToast(data.detail || '추가 실패');
