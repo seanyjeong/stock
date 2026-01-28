@@ -209,6 +209,60 @@ async def get_my_portfolio(user: dict = Depends(require_approved_user)):
     total_gain = total_value - total_cost
     total_gain_pct = (total_gain / total_cost * 100) if total_cost > 0 else 0
 
+    # 달러 잔고 계산 (brokerage API와 동일한 로직)
+    cash_balance_usd = 0.0
+    cash_balance_krw = 0.0
+
+    try:
+        conn2 = get_db()
+        cur2 = conn2.cursor(cursor_factory=RealDictCursor)
+
+        # 테이블 존재 여부 확인
+        cur2.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'cash_transactions'
+            )
+        """)
+        has_cash_table = cur2.fetchone()["exists"]
+
+        if has_cash_table:
+            # 입출금 합계
+            cur2.execute("""
+                SELECT
+                    COALESCE(SUM(CASE WHEN transaction_type = 'deposit' THEN amount ELSE 0 END), 0) as deposits,
+                    COALESCE(SUM(CASE WHEN transaction_type = 'withdraw' THEN amount ELSE 0 END), 0) as withdrawals
+                FROM cash_transactions
+                WHERE user_id = %s
+            """, (user["id"],))
+            cash_row = cur2.fetchone()
+            deposits = float(cash_row["deposits"]) if cash_row and cash_row["deposits"] else 0
+            withdrawals = float(cash_row["withdrawals"]) if cash_row and cash_row["withdrawals"] else 0
+        else:
+            deposits = 0
+            withdrawals = 0
+
+        # 매매 합계 (commission 포함)
+        cur2.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN trade_type = 'buy' THEN total_amount + COALESCE(commission, 0) ELSE 0 END), 0) as buy_total,
+                COALESCE(SUM(CASE WHEN trade_type = 'sell' THEN total_amount - COALESCE(commission, 0) ELSE 0 END), 0) as sell_total
+            FROM trades
+            WHERE user_id = %s
+        """, (user["id"],))
+        trade_row = cur2.fetchone()
+        buy_total = float(trade_row["buy_total"]) if trade_row and trade_row["buy_total"] else 0
+        sell_total = float(trade_row["sell_total"]) if trade_row and trade_row["sell_total"] else 0
+
+        cur2.close()
+        conn2.close()
+
+        cash_balance_usd = (deposits - withdrawals) + sell_total - buy_total
+        cash_balance_krw = cash_balance_usd * exchange_rate
+    except Exception:
+        # 테이블이 없거나 에러 발생 시 0으로 처리
+        pass
+
     return {
         "holdings": result,
         "total": {
@@ -217,6 +271,10 @@ async def get_my_portfolio(user: dict = Depends(require_approved_user)):
             "cost_usd": round(total_cost, 2),
             "gain_usd": round(total_gain, 2),
             "gain_pct": round(total_gain_pct, 1),
+        },
+        "cash_balance": {
+            "usd": round(cash_balance_usd, 2),
+            "krw": round(cash_balance_krw, 0),
         },
         "exchange_rate": exchange_rate,
     }

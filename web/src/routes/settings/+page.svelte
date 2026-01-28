@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icons.svelte';
-	import type { UserProfile } from '$lib/types';
+	import type { UserProfile, BrokerageSettings, BrokerageOption } from '$lib/types';
 
 	interface User {
 		id: number;
@@ -22,6 +22,13 @@
 	let profile = $state<UserProfile | null>(null);
 	let isLoadingProfile = $state(false);
 
+	// 증권사 설정
+	let brokerageSettings = $state<BrokerageSettings | null>(null);
+	let brokerages = $state<BrokerageOption[]>([]);
+	let selectedBrokerage = $state('키움증권');
+	let isLoadingBrokerage = $state(false);
+	let isSavingBrokerage = $state(false);
+
 	const profileTypes = {
 		conservative: { emoji: '🛡️', label: '안정형', color: '#58a6ff' },
 		balanced: { emoji: '⚖️', label: '균형형', color: '#a371f7' },
@@ -36,7 +43,7 @@
 			if (token && userStr) {
 				isLoggedIn = true;
 				user = JSON.parse(userStr);
-				await loadProfile(token);
+				await Promise.all([loadProfile(token), loadBrokerage(token)]);
 			}
 		}
 	});
@@ -55,6 +62,61 @@
 		} finally {
 			isLoadingProfile = false;
 		}
+	}
+
+	async function loadBrokerage(token: string) {
+		isLoadingBrokerage = true;
+		try {
+			// 증권사 목록 로드
+			const listRes = await fetch(`${API_BASE}/api/brokerage/brokerages`);
+			if (listRes.ok) {
+				const data = await listRes.json();
+				brokerages = data.brokerages;
+			}
+
+			// 내 설정 로드
+			const settingsRes = await fetch(`${API_BASE}/api/brokerage/settings`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			if (settingsRes.ok) {
+				brokerageSettings = await settingsRes.json();
+				selectedBrokerage = brokerageSettings?.brokerage_name || '키움증권';
+			}
+		} catch {
+			// Error loading brokerage
+		} finally {
+			isLoadingBrokerage = false;
+		}
+	}
+
+	async function saveBrokerage() {
+		const token = localStorage.getItem('access_token');
+		if (!token) return;
+
+		isSavingBrokerage = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/brokerage/settings`, {
+				method: 'PUT',
+				headers: {
+					'Authorization': `Bearer ${token}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ brokerage_name: selectedBrokerage })
+			});
+			if (response.ok) {
+				brokerageSettings = await response.json();
+				alert('증권사 설정이 저장되었습니다');
+			}
+		} catch {
+			alert('저장에 실패했습니다');
+		} finally {
+			isSavingBrokerage = false;
+		}
+	}
+
+	function getCommissionRate(name: string): number {
+		const found = brokerages.find(b => b.name === name);
+		return found ? found.commission_rate : 0.0025;
 	}
 
 	function retakeSurvey() {
@@ -148,6 +210,35 @@
 				</div>
 			{/if}
 		</section>
+
+		<section class="card">
+			<h2>증권사 설정</h2>
+			{#if isLoadingBrokerage}
+				<div class="profile-loading">불러오는 중...</div>
+			{:else}
+				<div class="brokerage-form">
+					<div class="brokerage-select">
+						<label for="brokerage">증권사</label>
+						<select id="brokerage" bind:value={selectedBrokerage}>
+							{#each brokerages as b}
+								<option value={b.name}>{b.name}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="commission-info">
+						<span class="commission-label">수수료율</span>
+						<span class="commission-value">{(getCommissionRate(selectedBrokerage) * 100).toFixed(2)}%</span>
+					</div>
+					<button
+						class="btn-save"
+						onclick={saveBrokerage}
+						disabled={isSavingBrokerage || selectedBrokerage === brokerageSettings?.brokerage_name}
+					>
+						{isSavingBrokerage ? '저장 중...' : '저장'}
+					</button>
+				</div>
+			{/if}
+		</section>
 	{/if}
 
 	<section class="card">
@@ -163,7 +254,7 @@
 		<div class="info-list">
 			<div class="info-item">
 				<span class="info-label">버전</span>
-				<span class="info-value">2.11.3</span>
+				<span class="info-value">2.12.0</span>
 			</div>
 			<div class="info-item">
 				<span class="info-label">개발자</span>
@@ -438,5 +529,75 @@
 
 	.btn-survey:hover {
 		background: #2ea043;
+	}
+
+	/* Brokerage Section */
+	.brokerage-form {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.brokerage-select label {
+		display: block;
+		font-size: 0.75rem;
+		color: #8b949e;
+		margin-bottom: 0.25rem;
+	}
+
+	.brokerage-select select {
+		width: 100%;
+		padding: 0.75rem;
+		background: #0d1117;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #f0f6fc;
+		font-size: 0.9rem;
+		cursor: pointer;
+	}
+
+	.brokerage-select select:focus {
+		outline: none;
+		border-color: #58a6ff;
+	}
+
+	.commission-info {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.75rem;
+		background: #0d1117;
+		border-radius: 8px;
+	}
+
+	.commission-label {
+		color: #8b949e;
+		font-size: 0.85rem;
+	}
+
+	.commission-value {
+		color: #58a6ff;
+		font-weight: 600;
+		font-size: 0.85rem;
+	}
+
+	.btn-save {
+		padding: 0.75rem;
+		border: none;
+		border-radius: 8px;
+		background: #238636;
+		color: white;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-save:hover:not(:disabled) {
+		background: #2ea043;
+	}
+
+	.btn-save:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

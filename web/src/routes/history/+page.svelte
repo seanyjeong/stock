@@ -11,6 +11,7 @@
 		shares: number;
 		price: number;
 		total_amount: number;
+		commission: number;
 		note: string | null;
 		traded_at: string | null;
 	}
@@ -136,6 +137,9 @@
 						</div>
 						<div class="trade-details">
 							<span>{trade.shares}주 × {formatCurrency(trade.price)}</span>
+							{#if trade.commission > 0}
+								<span class="commission">수수료: {formatCurrency(trade.commission)}</span>
+							{/if}
 							<span class="date">{formatDate(trade.traded_at)}</span>
 						</div>
 						{#if trade.note}
@@ -258,9 +262,16 @@
 
 	.trade-details {
 		display: flex;
+		flex-wrap: wrap;
 		justify-content: space-between;
+		gap: 0.25rem;
 		font-size: 0.8rem;
 		color: #8b949e;
+	}
+
+	.trade-details .commission {
+		color: #f0883e;
+		font-size: 0.75rem;
 	}
 
 	.trade-note {

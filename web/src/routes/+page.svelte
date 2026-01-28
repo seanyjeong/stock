@@ -36,6 +36,10 @@
 			gain_usd: number;
 			gain_pct: number;
 		};
+		cash_balance?: {
+			usd: number;
+			krw: number;
+		};
 		exchange_rate: number;
 	}
 
@@ -466,6 +470,17 @@
 							{/if}
 						</div>
 					</div>
+
+					<!-- 달러 잔고 -->
+					{#if portfolio.cash_balance}
+						<div class="cash-balance-row">
+							<span class="cash-label">달러 잔고</span>
+							<span class="cash-value" class:negative={portfolio.cash_balance.usd < 0}>
+								{formatCurrency(portfolio.cash_balance.usd)}
+								<span class="cash-krw">({formatCurrency(portfolio.cash_balance.krw, 'KRW')})</span>
+							</span>
+						</div>
+					{/if}
 
 					<!-- Tax Calculation (접기/펼치기) -->
 					{#if taxCalc}
@@ -1057,6 +1072,38 @@
 	.summary-card.negative .summary-value,
 	.summary-card.negative .summary-percent {
 		color: #f85149;
+	}
+
+	/* Cash Balance Row */
+	.cash-balance-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem;
+		background: #21262d;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+	}
+
+	.cash-balance-row .cash-label {
+		font-size: 0.8rem;
+		color: #8b949e;
+	}
+
+	.cash-balance-row .cash-value {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #f0f6fc;
+	}
+
+	.cash-balance-row .cash-value.negative {
+		color: #f85149;
+	}
+
+	.cash-balance-row .cash-krw {
+		font-size: 0.8rem;
+		color: #8b949e;
+		margin-left: 0.25rem;
 	}
 
 	/* Stock List */

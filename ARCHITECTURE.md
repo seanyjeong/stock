@@ -161,8 +161,29 @@ sudo journalctl -u stock-api -f    # 로그 확인
 | shares | numeric | 거래 수량 |
 | price | numeric | 거래 단가 |
 | total_amount | numeric | 총 금액 |
+| commission | numeric | 수수료 (v2.12) |
 | note | text | 메모 |
 | traded_at | timestamp | 거래일시 |
+
+#### user_brokerage_settings
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| user_id | integer | FK → users (UNIQUE) |
+| brokerage_name | varchar(50) | 증권사명 |
+| commission_rate | decimal(6,4) | 수수료율 (기본 0.0025) |
+| created_at | timestamptz | 생성일 |
+| updated_at | timestamptz | 수정일 |
+
+#### cash_transactions
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | integer | PK |
+| user_id | integer | FK → users |
+| transaction_type | varchar(20) | deposit/withdraw |
+| amount | decimal(15,2) | 금액 (USD) |
+| note | text | 메모 |
+| created_at | timestamptz | 생성일 |
 
 #### user_watchlist
 | 컬럼 | 타입 | 설명 |
@@ -511,9 +532,26 @@ sudo journalctl -u stock-api -f    # 로그 확인
 ### 거래
 | Method | Endpoint | 설명 |
 |--------|----------|------|
-| GET | `/api/trades/` | 거래 이력 |
-| POST | `/api/trades/` | 거래 등록 |
+| GET | `/api/trades/` | 거래 이력 (commission 포함) |
+| POST | `/api/trades/` | 거래 등록 (수수료 자동 계산) |
 | DELETE | `/api/trades/{id}` | 거래 삭제 |
+| GET | `/api/trades/summary` | 매매 요약 (total_commission 포함) |
+
+### 증권사/잔고
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/brokerage/brokerages` | 증권사 목록 (수수료율 포함) |
+| GET | `/api/brokerage/settings` | 내 증권사 설정 조회 |
+| PUT | `/api/brokerage/settings` | 증권사 선택 저장 |
+| GET | `/api/brokerage/cash-balance` | 달러 잔고 조회 |
+| POST | `/api/brokerage/cash-transaction` | 입금/출금 |
+| GET | `/api/brokerage/cash-transactions` | 입출금 내역 |
+| DELETE | `/api/brokerage/cash-transaction/{id}` | 입출금 삭제 |
+
+> **달러 잔고 계산:**
+> `잔고 = (입금 - 출금) + (매도 수령) - (매수 지출)`
+> - 매수 지출 = total_amount + commission
+> - 매도 수령 = total_amount - commission
 
 ### 데이터
 | Method | Endpoint | 설명 |
@@ -850,12 +888,27 @@ uv run python deep_analyzer.py GLSI --normal # 일반 분석 모드 강제
 ---
 
 ## 현재 버전
-- **프론트엔드**: v2.11.3
+- **프론트엔드**: v2.12.0
 - **deep_analyzer**: v4 (나스닥의 신)
 - **스캐너**: v3.2 (필터 업그레이드 + 투자 성향별 손절)
 - **문서 업데이트**: 2026-01-28
 
 ## 변경 이력
+
+### v2.12.0 - 달러 잔고 + 증권사 수수료 (2026-01-28)
+- **달러 잔고 시스템**: 거래 연동 자동 계산 (매수→차감, 매도→추가)
+  - 잔고 = (입금 - 출금) + 매도수령 - 매수지출
+  - 마이너스 잔고 허용 (트래커 용도)
+- **증권사 설정**: 8개 증권사 선택, 수수료율 자동 적용
+  - 키움/미래에셋/삼성/NH/한투/KB: 0.25%
+  - 토스증권: 0.10%
+- **매매수수료**: 거래 시 자동 계산, 거래내역에 표시
+- **입출금 기능**: 달러 입금/출금 + 메모 + 내역 조회
+- **DB 테이블 추가**: `user_brokerage_settings`, `cash_transactions`
+- **trades 테이블**: `commission` 컬럼 추가
+- **API 추가**: `/api/brokerage/*` (설정/잔고/입출금)
+- **포트폴리오**: 달러 잔고 표시, 수수료 미리보기
+- **설정 페이지**: 증권사 선택 카드 추가
 
 ### 스캐너 v3.2 - 필터 업그레이드 (2026-01-28)
 - **단타 실패 패턴 분석 기반 7개 필터 추가:**

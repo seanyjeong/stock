@@ -168,3 +168,39 @@ export interface ProfileCreateRequest {
 export interface ProfileCheckResponse {
 	has_profile: boolean;
 }
+
+// Brokerage types
+export interface BrokerageSettings {
+	brokerage_name: string;
+	commission_rate: number;
+}
+
+export interface BrokerageOption {
+	name: string;
+	commission_rate: number;
+}
+
+export interface CashTransaction {
+	id: number;
+	transaction_type: 'deposit' | 'withdraw';
+	amount: number;
+	note: string | null;
+	created_at: string | null;
+}
+
+export interface CashBalance {
+	usd: number;
+	krw: number;
+}
+
+export interface Trade {
+	id: number;
+	ticker: string;
+	trade_type: 'buy' | 'sell';
+	shares: number;
+	price: number;
+	total_amount: number;
+	commission: number;
+	note: string | null;
+	traded_at: string | null;
+}

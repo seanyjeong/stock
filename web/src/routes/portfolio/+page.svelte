@@ -37,9 +37,18 @@
 	let holdings = $state<Holding[]>([]);
 	let trades = $state<Trade[]>([]);
 	let total = $state({ value_usd: 0, value_krw: 0, cost_usd: 0, gain_usd: 0, gain_pct: 0 });
+	let cashBalance = $state({ usd: 0, krw: 0 });
+	let commissionRate = $state(0.0025);
 	let exchangeRate = $state(0);
 	let isLoading = $state(true);
 	let error = $state('');
+
+	// Cash transaction form
+	let showCashForm = $state(false);
+	let cashType = $state<'deposit' | 'withdraw'>('deposit');
+	let cashAmount = $state('');
+	let cashNote = $state('');
+	let isSubmittingCash = $state(false);
 
 	// Trade form
 	type TradeMode = 'buy' | 'sell' | null;
@@ -191,12 +200,62 @@
 			const data = await response.json();
 			holdings = data.holdings;
 			total = data.total;
+			cashBalance = data.cash_balance || { usd: 0, krw: 0 };
 			exchangeRate = data.exchange_rate || 0;
+
+			// 수수료율 로드
+			const brokerRes = await fetch(`${API_BASE}/api/brokerage/settings`, {
+				headers: getAuthHeaders(),
+			});
+			if (brokerRes.ok) {
+				const brokerData = await brokerRes.json();
+				commissionRate = brokerData.commission_rate || 0.0025;
+			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : '오류가 발생했습니다';
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	async function submitCashTransaction() {
+		if (!cashAmount || parseFloat(cashAmount) <= 0) {
+			alert('금액을 입력해주세요');
+			return;
+		}
+
+		isSubmittingCash = true;
+		try {
+			const response = await fetch(`${API_BASE}/api/brokerage/cash-transaction`, {
+				method: 'POST',
+				headers: getAuthHeaders(),
+				body: JSON.stringify({
+					transaction_type: cashType,
+					amount: parseFloat(cashAmount),
+					note: cashNote || null,
+				}),
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.detail || '처리 실패');
+			}
+
+			const result = await response.json();
+			alert(result.message);
+			showCashForm = false;
+			cashAmount = '';
+			cashNote = '';
+			await loadPortfolio();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : '오류가 발생했습니다');
+		} finally {
+			isSubmittingCash = false;
+		}
+	}
+
+	function calcCommission(amount: number): number {
+		return amount * commissionRate;
 	}
 
 	let searchTimeout: ReturnType<typeof setTimeout>;
@@ -413,9 +472,22 @@
 				</div>
 
 				{#if tradeShares && tradePrice}
+					{@const subtotal = parseFloat(tradeShares) * parseFloat(tradePrice)}
+					{@const commission = calcCommission(subtotal)}
+					{@const totalWithCommission = tradeMode === 'buy' ? subtotal + commission : subtotal - commission}
 					<div class="trade-summary">
-						<span>총 {tradeMode === 'buy' ? '매수' : '매도'}금액:</span>
-						<span class="amount">${(parseFloat(tradeShares) * parseFloat(tradePrice)).toFixed(2)}</span>
+						<div class="summary-row">
+							<span>거래금액:</span>
+							<span>${subtotal.toFixed(2)}</span>
+						</div>
+						<div class="summary-row commission">
+							<span>수수료 ({(commissionRate * 100).toFixed(2)}%):</span>
+							<span>-${commission.toFixed(2)}</span>
+						</div>
+						<div class="summary-row total">
+							<span>총 {tradeMode === 'buy' ? '지출' : '수령'}:</span>
+							<span class="amount">${totalWithCommission.toFixed(2)}</span>
+						</div>
 					</div>
 				{/if}
 
@@ -475,6 +547,45 @@
 					<span class="value">{formatCurrency(total.gain_usd)}</span>
 					<span class="pct">{formatPercent(total.gain_pct)}</span>
 				</div>
+			</div>
+
+			<!-- 달러 잔고 -->
+			<div class="cash-balance card">
+				<div class="cash-header">
+					<div class="cash-info">
+						<span class="cash-label">달러 잔고</span>
+						<span class="cash-value" class:negative={cashBalance.usd < 0}>{formatCurrency(cashBalance.usd)}</span>
+						<span class="cash-krw">{formatCurrency(cashBalance.krw, 'KRW')}</span>
+					</div>
+					<button class="btn-cash" onclick={() => showCashForm = !showCashForm}>
+						{showCashForm ? '취소' : '입출금'}
+					</button>
+				</div>
+				{#if showCashForm}
+					<div class="cash-form">
+						<div class="cash-type-toggle">
+							<button class:active={cashType === 'deposit'} onclick={() => cashType = 'deposit'}>입금</button>
+							<button class:active={cashType === 'withdraw'} onclick={() => cashType = 'withdraw'}>출금</button>
+						</div>
+						<div class="form-group">
+							<label>금액 ($)</label>
+							<input type="number" step="0.01" min="0" placeholder="0.00" bind:value={cashAmount} />
+						</div>
+						<div class="form-group">
+							<label>메모 (선택)</label>
+							<input type="text" placeholder="예: 증권사 입금" bind:value={cashNote} />
+						</div>
+						<button
+							class="btn-submit-cash"
+							class:deposit={cashType === 'deposit'}
+							class:withdraw={cashType === 'withdraw'}
+							onclick={submitCashTransaction}
+							disabled={isSubmittingCash || !cashAmount}
+						>
+							{isSubmittingCash ? '처리 중...' : (cashType === 'deposit' ? '입금하기' : '출금하기')}
+						</button>
+					</div>
+				{/if}
 			</div>
 
 			<div class="holdings">
@@ -1210,5 +1321,132 @@
 	.price-tag.ah {
 		background: rgba(31, 111, 235, 0.3);
 		color: #58a6ff;
+	}
+
+	/* 수수료 미리보기 */
+	.trade-summary .summary-row {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.25rem 0;
+	}
+
+	.trade-summary .summary-row.commission {
+		font-size: 0.8rem;
+		color: #f0883e;
+	}
+
+	.trade-summary .summary-row.total {
+		border-top: 1px solid #30363d;
+		padding-top: 0.5rem;
+		margin-top: 0.25rem;
+		font-weight: 600;
+	}
+
+	/* 달러 잔고 카드 */
+	.cash-balance {
+		padding: 1rem;
+	}
+
+	.cash-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.cash-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.cash-label {
+		font-size: 0.7rem;
+		color: #8b949e;
+	}
+
+	.cash-value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #f0f6fc;
+	}
+
+	.cash-value.negative {
+		color: #f85149;
+	}
+
+	.cash-krw {
+		font-size: 0.8rem;
+		color: #8b949e;
+	}
+
+	.btn-cash {
+		padding: 0.5rem 1rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #8b949e;
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-cash:hover {
+		border-color: #58a6ff;
+		color: #58a6ff;
+	}
+
+	.cash-form {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid #30363d;
+	}
+
+	.cash-type-toggle {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	.cash-type-toggle button {
+		flex: 1;
+		padding: 0.5rem;
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 8px;
+		color: #8b949e;
+		font-size: 0.85rem;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.cash-type-toggle button.active {
+		border-color: #58a6ff;
+		color: #58a6ff;
+		background: rgba(88, 166, 255, 0.1);
+	}
+
+	.btn-submit-cash {
+		width: 100%;
+		padding: 0.75rem;
+		border: none;
+		border-radius: 8px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s;
+	}
+
+	.btn-submit-cash.deposit {
+		background: #238636;
+		color: white;
+	}
+
+	.btn-submit-cash.withdraw {
+		background: #da3633;
+		color: white;
+	}
+
+	.btn-submit-cash:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

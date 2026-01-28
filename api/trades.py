@@ -11,6 +11,7 @@ from psycopg2.extras import RealDictCursor
 
 from db import get_db
 from api.auth import require_approved_user
+from api.brokerage import get_user_commission_rate
 
 router = APIRouter(prefix="/api/trades", tags=["trades"])
 
@@ -48,6 +49,7 @@ async def get_trades(
             shares DECIMAL(15, 4) NOT NULL,
             price DECIMAL(15, 4) NOT NULL,
             total_amount DECIMAL(15, 2) NOT NULL,
+            commission DECIMAL(15, 4) DEFAULT 0,
             note TEXT,
             traded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -83,6 +85,7 @@ async def get_trades(
                 "shares": float(t["shares"]),
                 "price": float(t["price"]),
                 "total_amount": float(t["total_amount"]),
+                "commission": float(t["commission"]) if t.get("commission") else 0,
                 "note": t["note"],
                 "traded_at": t["traded_at"].isoformat() if t["traded_at"] else None,
             }
@@ -108,6 +111,7 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
             shares DECIMAL(15, 4) NOT NULL,
             price DECIMAL(15, 4) NOT NULL,
             total_amount DECIMAL(15, 2) NOT NULL,
+            commission DECIMAL(15, 4) DEFAULT 0,
             note TEXT,
             traded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -129,6 +133,10 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
 
     ticker = trade.ticker.upper().strip()
     total_amount = trade.shares * trade.price
+
+    # 수수료 계산
+    commission_rate = get_user_commission_rate(user["id"])
+    commission = round(total_amount * commission_rate, 4)
 
     # 현재 보유 현황 확인
     cur.execute(
@@ -180,10 +188,10 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
 
     # 매매 기록 저장
     cur.execute("""
-        INSERT INTO trades (user_id, ticker, trade_type, shares, price, total_amount, note)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO trades (user_id, ticker, trade_type, shares, price, total_amount, commission, note)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING *
-    """, (user["id"], ticker, trade.trade_type.value, trade.shares, trade.price, total_amount, trade.note))
+    """, (user["id"], ticker, trade.trade_type.value, trade.shares, trade.price, total_amount, commission, trade.note))
 
     result = cur.fetchone()
     conn.commit()
@@ -192,7 +200,7 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
 
     action = "매수" if trade.trade_type == TradeType.BUY else "매도"
     return {
-        "message": f"{ticker} {trade.shares}주 {action} 완료",
+        "message": f"{ticker} {trade.shares}주 {action} 완료 (수수료: ${commission:.2f})",
         "trade": {
             "id": result["id"],
             "ticker": result["ticker"],
@@ -200,6 +208,7 @@ async def create_trade(trade: TradeCreate, user: dict = Depends(require_approved
             "shares": float(result["shares"]),
             "price": float(result["price"]),
             "total_amount": float(result["total_amount"]),
+            "commission": float(result["commission"]) if result.get("commission") else 0,
         }
     }
 
@@ -244,6 +253,7 @@ async def get_trade_summary(user: dict = Depends(require_approved_user)):
             shares DECIMAL(15, 4) NOT NULL,
             price DECIMAL(15, 4) NOT NULL,
             total_amount DECIMAL(15, 2) NOT NULL,
+            commission DECIMAL(15, 4) DEFAULT 0,
             note TEXT,
             traded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -258,7 +268,8 @@ async def get_trade_summary(user: dict = Depends(require_approved_user)):
             SUM(CASE WHEN trade_type = 'buy' THEN shares ELSE 0 END) as bought_shares,
             SUM(CASE WHEN trade_type = 'buy' THEN total_amount ELSE 0 END) as bought_amount,
             SUM(CASE WHEN trade_type = 'sell' THEN shares ELSE 0 END) as sold_shares,
-            SUM(CASE WHEN trade_type = 'sell' THEN total_amount ELSE 0 END) as sold_amount
+            SUM(CASE WHEN trade_type = 'sell' THEN total_amount ELSE 0 END) as sold_amount,
+            SUM(COALESCE(commission, 0)) as total_commission
         FROM trades
         WHERE user_id = %s
         GROUP BY ticker
@@ -271,21 +282,24 @@ async def get_trade_summary(user: dict = Depends(require_approved_user)):
 
     results = []
     total_realized = 0.0
+    total_commission = 0.0
 
     for s in summaries:
         bought = float(s["bought_amount"]) if s["bought_amount"] else 0
         sold = float(s["sold_amount"]) if s["sold_amount"] else 0
         bought_shares = float(s["bought_shares"]) if s["bought_shares"] else 0
         sold_shares = float(s["sold_shares"]) if s["sold_shares"] else 0
+        commission = float(s["total_commission"]) if s["total_commission"] else 0
 
-        # 실현 손익 계산 (매도금액 - 매도비율만큼의 매수금액)
+        # 실현 손익 계산 (매도금액 - 매도비율만큼의 매수금액 - 수수료)
         if sold_shares > 0 and bought_shares > 0:
             avg_buy_price = bought / bought_shares
-            realized = sold - (sold_shares * avg_buy_price)
+            realized = sold - (sold_shares * avg_buy_price) - commission
         else:
             realized = 0
 
         total_realized += realized
+        total_commission += commission
 
         results.append({
             "ticker": s["ticker"],
@@ -293,10 +307,12 @@ async def get_trade_summary(user: dict = Depends(require_approved_user)):
             "bought_amount": round(bought, 2),
             "sold_shares": sold_shares,
             "sold_amount": round(sold, 2),
+            "commission": round(commission, 2),
             "realized_gain": round(realized, 2),
         })
 
     return {
         "summaries": results,
         "total_realized_gain": round(total_realized, 2),
+        "total_commission": round(total_commission, 2),
     }
