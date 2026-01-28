@@ -475,18 +475,18 @@
 					{@const subtotal = parseFloat(tradeShares) * parseFloat(tradePrice)}
 					{@const commission = calcCommission(subtotal)}
 					{@const totalWithCommission = tradeMode === 'buy' ? subtotal + commission : subtotal - commission}
-					<div class="trade-summary">
-						<div class="summary-row">
-							<span>거래금액:</span>
+					<div class="trade-cost-summary">
+						<div class="cost-line">
+							<span>금액</span>
 							<span>${subtotal.toFixed(2)}</span>
 						</div>
-						<div class="summary-row commission">
-							<span>수수료 ({(commissionRate * 100).toFixed(2)}%):</span>
+						<div class="cost-line fee">
+							<span>수수료</span>
 							<span>-${commission.toFixed(2)}</span>
 						</div>
-						<div class="summary-row total">
-							<span>총 {tradeMode === 'buy' ? '지출' : '수령'}:</span>
-							<span class="amount">${totalWithCommission.toFixed(2)}</span>
+						<div class="cost-total">
+							<span>{tradeMode === 'buy' ? '총 지출' : '총 수령'}</span>
+							<span>${totalWithCommission.toFixed(2)}</span>
 						</div>
 					</div>
 				{/if}
@@ -549,14 +549,22 @@
 				</div>
 			</div>
 
-			<!-- 달러 잔고 -->
+			<!-- 달러 잔고 + 총 계좌 -->
 			<div class="cash-balance card">
-				<div class="cash-header">
-					<div class="cash-info">
+				<div class="cash-grid">
+					<div class="cash-item">
 						<span class="cash-label">달러 잔고</span>
 						<span class="cash-value" class:negative={cashBalance.usd < 0}>{formatCurrency(cashBalance.usd)}</span>
-						<span class="cash-krw">{formatCurrency(cashBalance.krw, 'KRW')}</span>
 					</div>
+					<div class="cash-item">
+						<span class="cash-label">총 계좌</span>
+						<span class="cash-value">{formatCurrency(total.value_usd + cashBalance.usd)}</span>
+					</div>
+				</div>
+				<div class="cash-krw-row">
+					{formatCurrency(cashBalance.krw, 'KRW')} + {formatCurrency(total.value_krw, 'KRW')} = <strong>{formatCurrency((total.value_usd + cashBalance.usd) * exchangeRate, 'KRW')}</strong>
+				</div>
+				<div class="cash-actions">
 					<button class="btn-cash" onclick={() => showCashForm = !showCashForm}>
 						{showCashForm ? '취소' : '입출금'}
 					</button>
@@ -1324,22 +1332,33 @@
 	}
 
 	/* 수수료 미리보기 */
-	.trade-summary .summary-row {
-		display: flex;
-		justify-content: space-between;
-		padding: 0.25rem 0;
+	.trade-cost-summary {
+		background: #0d1117;
+		border-radius: 8px;
+		padding: 0.75rem;
+		margin-bottom: 1rem;
+		font-size: 0.85rem;
 	}
 
-	.trade-summary .summary-row.commission {
-		font-size: 0.8rem;
+	.trade-cost-summary .cost-line {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.2rem 0;
+		color: #8b949e;
+	}
+
+	.trade-cost-summary .cost-line.fee {
 		color: #f0883e;
 	}
 
-	.trade-summary .summary-row.total {
-		border-top: 1px solid #30363d;
+	.trade-cost-summary .cost-total {
+		display: flex;
+		justify-content: space-between;
 		padding-top: 0.5rem;
-		margin-top: 0.25rem;
-		font-weight: 600;
+		margin-top: 0.3rem;
+		border-top: 1px solid #30363d;
+		font-weight: 700;
+		color: #58a6ff;
 	}
 
 	/* 달러 잔고 카드 */
@@ -1347,25 +1366,26 @@
 		padding: 1rem;
 	}
 
-	.cash-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
+	.cash-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		margin-bottom: 0.5rem;
 	}
 
-	.cash-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.1rem;
+	.cash-item {
+		text-align: center;
 	}
 
 	.cash-label {
+		display: block;
 		font-size: 0.7rem;
 		color: #8b949e;
+		margin-bottom: 0.2rem;
 	}
 
 	.cash-value {
-		font-size: 1.25rem;
+		font-size: 1.1rem;
 		font-weight: 700;
 		color: #f0f6fc;
 	}
@@ -1374,9 +1394,23 @@
 		color: #f85149;
 	}
 
-	.cash-krw {
-		font-size: 0.8rem;
+	.cash-krw-row {
+		text-align: center;
+		font-size: 0.75rem;
 		color: #8b949e;
+		padding: 0.5rem;
+		background: #0d1117;
+		border-radius: 6px;
+		margin-bottom: 0.75rem;
+	}
+
+	.cash-krw-row strong {
+		color: #f0f6fc;
+	}
+
+	.cash-actions {
+		display: flex;
+		justify-content: center;
 	}
 
 	.btn-cash {
