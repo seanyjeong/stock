@@ -23,6 +23,7 @@ import yfinance as yf
 import pandas as pd
 
 from lib import get_institutional_changes, get_peer_comparison
+from lib.base import get_stop_cap
 
 
 def analyze(ticker: str) -> Optional[dict]:
@@ -39,12 +40,12 @@ def analyze(ticker: str) -> Optional[dict]:
             return None
 
         info = stock.info or {}
-        current_price = (
-            info.get('currentPrice')
-            or info.get('regularMarketPrice')
-            or float(hist['Close'].iloc[-1])
+        from lib.base import get_extended_price
+        current_price, price_source = get_extended_price(
+            info, float(hist['Close'].iloc[-1])
         )
-        current_price = float(current_price)
+        if not current_price:
+            return None
 
         # 시총 필터: $10B+
         market_cap = info.get('marketCap', 0) or 0
@@ -171,6 +172,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'category': 'longterm',
             'company_name': info.get('shortName', ticker),
             'current_price': round(current_price, 2),
+            'price_source': price_source,
             'market_cap': market_cap,
             'score': round(min(score, 100), 1),
             'score_breakdown': score_breakdown,
@@ -184,7 +186,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'relative_valuation': relative_value,
             'recommended_entry': round(current_price * 0.90, 2),
             'split_entry_2': round(current_price * 0.85, 2),
-            'stop_loss': round(low_52w * 0.90, 2),
+            'stop_loss': round(max(low_52w * 0.90, current_price * (1 - get_stop_cap('long'))), 2),
             'target': round(high_52w * 0.90, 2),
             'high_52w': round(high_52w, 2),
             'low_52w': round(low_52w, 2),

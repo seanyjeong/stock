@@ -29,6 +29,7 @@ from lib import (
     get_options_data,
 )
 from lib.sec_patterns import get_cached_patterns
+from lib.base import get_stop_cap
 
 
 def _calculate_rsi(prices: pd.Series, period: int = 14) -> float:
@@ -95,12 +96,12 @@ def analyze(ticker: str) -> Optional[dict]:
             return None
 
         info = stock.info or {}
-        current_price = (
-            info.get('currentPrice')
-            or info.get('regularMarketPrice')
-            or float(hist['Close'].iloc[-1])
+        from lib.base import get_extended_price
+        current_price, price_source = get_extended_price(
+            info, float(hist['Close'].iloc[-1])
         )
-        current_price = float(current_price)
+        if not current_price:
+            return None
 
         if current_price < 5:
             return None
@@ -231,6 +232,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'sector': sector,
             'industry': industry,
             'current_price': round(current_price, 2),
+            'price_source': price_source,
             'market_cap': info.get('marketCap', 0),
             'score': round(min(score, 100), 1),
             'rsi': round(rsi, 1),
@@ -242,7 +244,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'options_signal': options_signal,
             'sec_signals': sec_signals if sec_signals else None,
             'recommended_entry': round(current_price * 0.95, 2),
-            'stop_loss': round(support * 0.95, 2),
+            'stop_loss': round(max(support * 0.95, current_price * (1 - get_stop_cap('swing'))), 2),
             'target': round(resistance * 0.95, 2),
             'support': round(support, 2),
             'resistance': round(resistance, 2),

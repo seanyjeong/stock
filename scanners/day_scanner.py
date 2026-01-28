@@ -105,12 +105,12 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             return None
 
         info = stock.info or {}
-        current_price = (
-            info.get('currentPrice')
-            or info.get('regularMarketPrice')
-            or float(hist['Close'].iloc[-1])
+        from lib.base import get_extended_price
+        current_price, price_source = get_extended_price(
+            info, float(hist['Close'].iloc[-1])
         )
-        current_price = float(current_price)
+        if not current_price:
+            return None
 
         # 가격 필터: $0.50 ~ $100 (단타용, 나노캡 포함)
         if current_price < 0.5 or current_price > 100:
@@ -131,9 +131,18 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         vol_today = hist['Volume'].iloc[-1]
         volume_ratio = float(vol_today / vol_avg) if vol_avg > 0 else 1.0
 
+        # 볼륨 1.0x 미만 → 즉시 제외 (관심 없는 종목)
+        if volume_ratio < 1.0:
+            return None
+
         # 모멘텀 체크 (전일 대비 갭/연속 상승)
         prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current_price
         day_change_pct = ((current_price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+
+        # 갭앤페이드 필터: 갭업 >30% + RSI >70 → 제외
+        if day_change_pct > 30 and rsi > 70:
+            return None
+
         # 최근 3일 연속 상승 체크
         recent_closes = hist['Close'].tail(4)
         consecutive_up = 0
@@ -199,8 +208,14 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             score += 9
             signal_tags.append(f"거래량 {volume_ratio:.1f}배↑")
 
-        # 2. RSI 반등 (max 18)
-        if 30 <= rsi <= 45:
+        # 2. RSI 반등 (max 18) / 과매수 패널티
+        if rsi > 90:
+            score -= 10
+            signal_tags.append("RSI 과매수 위험")
+        elif rsi > 80:
+            score -= 5
+            signal_tags.append("RSI 과매수 주의")
+        elif 30 <= rsi <= 45:
             score += 18
             signal_tags.append("RSI 반등")
         elif 25 <= rsi < 30:
@@ -253,7 +268,16 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             score += squeeze_score
             signal_tags.append("스퀴즈")
 
-        # 8. SEC 공시 패턴 (max 11)
+        # 8. 핀 바 감지 (max 3) - 긴 아래꼬리 + 작은 몸통 = 반등 신호
+        last = hist.iloc[-1]
+        body = abs(float(last['Close']) - float(last['Open']))
+        total_range = float(last['High']) - float(last['Low'])
+        lower_wick = min(float(last['Open']), float(last['Close'])) - float(last['Low'])
+        if total_range > 0 and body / total_range < 0.3 and lower_wick / total_range > 0.6:
+            score += 3
+            signal_tags.append("핀 바 반등")
+
+        # 9. SEC 공시 패턴 (max 11)
         sec_signals = []
         try:
             patterns = get_cached_patterns(ticker)
@@ -266,10 +290,24 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         except Exception:
             pass
 
-        if score < 30:
+        if score < 40:
             return None
 
         support, resistance = _calculate_support_resistance(hist)
+
+        # 손절폭: ATR*1.5, 투자 성향별 cap
+        from lib.base import get_stop_cap
+        max_stop_distance = current_price * get_stop_cap('day')
+        atr_stop_distance = atr * 1.5
+        stop_distance = min(atr_stop_distance, max_stop_distance)
+        stop_loss = round(current_price - stop_distance, 2)
+        target = round(current_price * 1.08, 2)
+
+        # R:R 비율 최소 1.5:1 필터
+        reward = target - current_price
+        risk = current_price - stop_loss
+        if risk > 0 and reward / risk < 1.5:
+            return None
 
         result = {
             'ticker': ticker,
@@ -278,6 +316,7 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'sector': info.get('sector', ''),
             'industry': info.get('industry', ''),
             'current_price': round(current_price, 2),
+            'price_source': price_source,
             'market_cap': market_cap,
             'score': round(min(score, 100), 1),
             'rsi': round(rsi, 1),
@@ -286,8 +325,8 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'news_score': news_score,
             'signal_tags': signal_tags,
             'recommended_entry': round(current_price * 0.98, 2),
-            'stop_loss': round(current_price - (atr * 1.5), 2),
-            'target': round(current_price * 1.08, 2),
+            'stop_loss': stop_loss,
+            'target': target,
             'support': round(support, 2),
             'resistance': round(resistance, 2),
         }
