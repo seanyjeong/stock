@@ -214,34 +214,24 @@ async def get_data_status():
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        tables = {
-            "day_trade": "day_trade_recommendations",
-            "swing": "swing_recommendations",
-            "longterm": "longterm_recommendations",
-            "squeeze": "squeeze_data",
-        }
+        # v3: daily_scan_results 통합 테이블에서 created_at 조회
+        categories = ["day_trade", "swing", "longterm"]
 
         schedules = {
             "day_trade": {"cron": "17:30 KST (월-금)", "desc": "프리마켓 1시간 전", "hour": 8, "minute": 30},
             "swing": {"cron": "09:10 KST (화-토)", "desc": "장 마감 후", "hour": 0, "minute": 10},
             "longterm": {"cron": "09:20 KST (화-토)", "desc": "장 마감 후", "hour": 0, "minute": 20},
-            "squeeze": {"cron": "00:00 KST (매일)", "desc": "매일 자정", "hour": 15, "minute": 0},
         }
 
         result = {}
         now = datetime.now(timezone.utc)
 
-        for key, table in tables.items():
-            # squeeze_data에는 created_at 없음 — collected_at이나 id로 대체
-            if key == "squeeze":
-                cur.execute(f"SELECT MAX(id) as last_id FROM {table}")
-                row = cur.fetchone()
-                updated_at = None  # squeeze_data에 타임스탬프가 없으면 None
-            else:
-                cur.execute(f"SELECT created_at FROM {table} ORDER BY created_at DESC LIMIT 1")
-                row = cur.fetchone()
-                updated_at = row["created_at"].isoformat() if row and row.get("created_at") else None
+        # daily_scan_results에서 최신 created_at 가져오기
+        cur.execute("SELECT created_at FROM daily_scan_results ORDER BY created_at DESC LIMIT 1")
+        row = cur.fetchone()
+        last_updated = row["created_at"].isoformat() if row and row.get("created_at") else None
 
+        for key in categories:
             sched = schedules[key]
 
             # 다음 업데이트 시간 계산 (UTC 기준)
@@ -257,7 +247,7 @@ async def get_data_status():
                     next_dt += timedelta(days=1)
 
             result[key] = {
-                "updated_at": updated_at,
+                "updated_at": last_updated,
                 "schedule": sched["cron"],
                 "desc": sched["desc"],
                 "next_update": next_dt.isoformat(),
