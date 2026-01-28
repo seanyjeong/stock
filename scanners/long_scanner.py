@@ -26,6 +26,38 @@ from lib import get_institutional_changes, get_peer_comparison
 from lib.base import get_stop_cap
 
 
+def _calculate_atr(hist: pd.DataFrame, period: int = 14) -> float:
+    """ATR (Average True Range) 계산"""
+    if len(hist) < period + 1:
+        return float(hist['High'].iloc[-1] - hist['Low'].iloc[-1])
+    high = hist['High']
+    low = hist['Low']
+    close = hist['Close'].shift(1)
+    tr = pd.concat([high - low, abs(high - close), abs(low - close)], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean().iloc[-1]
+    return float(atr) if not pd.isna(atr) else float(hist['High'].iloc[-1] - hist['Low'].iloc[-1])
+
+
+def _calculate_smart_entry(current_price: float, support: float, atr: float, style: str = 'long') -> float:
+    """지지선 + ATR 기반 매수가 계산"""
+    support_distance_pct = (current_price - support) / current_price * 100
+    atr_factors = {'day': 0.3, 'swing': 0.5, 'long': 0.7}
+    atr_factor = atr_factors.get(style, 0.7)
+    atr_entry = current_price - (atr * atr_factor)
+    buffer_pct = {'day': 0.01, 'swing': 0.02, 'long': 0.03}
+    support_entry = support * (1 + buffer_pct.get(style, 0.03))
+
+    if support_distance_pct <= 7:  # 장기는 지지선 7% 이내
+        entry = support_entry
+    else:
+        entry = atr_entry
+
+    min_entry = current_price * 0.90  # 장기는 10% 눌림까지 허용
+    entry = max(entry, min_entry)
+    entry = min(entry, current_price * 0.98)
+    return round(entry, 2)
+
+
 def analyze(ticker: str) -> Optional[dict]:
     """장기 종목 분석 (3개월+ 보유) - 연속 점수 체계
 
@@ -55,6 +87,11 @@ def analyze(ticker: str) -> Optional[dict]:
         # 52주 고/저가
         high_52w = float(hist['High'].max())
         low_52w = float(hist['Low'].min())
+
+        # ATR 계산 (매수가 계산용)
+        atr = _calculate_atr(hist)
+        # 장기는 52주 저점을 지지선으로 사용
+        support = low_52w
 
         # === 연속 점수 체계 (0~100) ===
         score = 0.0
@@ -184,7 +221,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'institutional_pct': institutional_pct,
             'institutional_signal': institutional_signal,
             'relative_valuation': relative_value,
-            'recommended_entry': round(current_price * 0.90, 2),
+            'recommended_entry': _calculate_smart_entry(current_price, support, atr, 'long'),
             'split_entry_2': round(current_price * 0.85, 2),
             'stop_loss': round(max(low_52w * 0.90, current_price * (1 - get_stop_cap('long'))), 2),
             'target': round(high_52w * 0.90, 2),

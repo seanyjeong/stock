@@ -91,6 +91,52 @@ def _calculate_support_resistance(hist: pd.DataFrame) -> tuple:
     return float(lows.min()), float(highs.max())
 
 
+def _calculate_smart_entry(current_price: float, support: float, atr: float, style: str = 'day') -> float:
+    """지지선 + ATR 기반 똑똑한 매수가 계산
+
+    Args:
+        current_price: 현재가
+        support: 지지선 (20일 저점)
+        atr: Average True Range
+        style: 'day' | 'swing' | 'long'
+
+    Returns:
+        추천 매수가
+    """
+    # 지지선까지 거리 (%)
+    support_distance_pct = (current_price - support) / current_price * 100
+
+    # ATR 기반 진입가 (스타일별 계수)
+    atr_factors = {'day': 0.3, 'swing': 0.5, 'long': 0.7}
+    atr_factor = atr_factors.get(style, 0.3)
+    atr_entry = current_price - (atr * atr_factor)
+
+    # 지지선 기반 진입가 (지지선 + 약간의 버퍼)
+    buffer_pct = {'day': 0.01, 'swing': 0.02, 'long': 0.03}
+    support_entry = support * (1 + buffer_pct.get(style, 0.01))
+
+    # 로직:
+    # 1. 지지선이 현재가에서 5% 이내면 → 지지선 근처에서 매수
+    # 2. 지지선이 너무 멀면 → ATR 기반으로 적당히 눌림 시 매수
+    # 3. 둘 중 현재가에 더 가까운 것 선택 (너무 멀면 기회 놓침)
+
+    if support_distance_pct <= 5:
+        # 지지선 가까움 → 지지선 근처 매수 추천
+        entry = support_entry
+    else:
+        # 지지선 멀음 → ATR 기반 매수 (적당한 눌림)
+        entry = atr_entry
+
+    # 현재가의 95% 이상은 보장 (너무 낮으면 매수 기회 없음)
+    min_entry = current_price * 0.95
+    entry = max(entry, min_entry)
+
+    # 현재가보다 높으면 안 됨
+    entry = min(entry, current_price * 0.995)
+
+    return round(entry, 2)
+
+
 def analyze(ticker: str, news_score: float) -> Optional[dict]:
     """단타 종목 분석
 
@@ -331,7 +377,7 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'volume_ratio': round(volume_ratio, 2),
             'news_score': news_score,
             'signal_tags': signal_tags,
-            'recommended_entry': round(current_price * 0.98, 2),
+            'recommended_entry': _calculate_smart_entry(current_price, support, atr, 'day'),
             'stop_loss': stop_loss,
             'target': target,
             'support': round(support, 2),

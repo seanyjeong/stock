@@ -48,6 +48,18 @@ def _calculate_rsi(prices: pd.Series, period: int = 14) -> float:
     return result
 
 
+def _calculate_atr(hist: pd.DataFrame, period: int = 14) -> float:
+    """ATR (Average True Range) 계산"""
+    if len(hist) < period + 1:
+        return float(hist['High'].iloc[-1] - hist['Low'].iloc[-1])
+    high = hist['High']
+    low = hist['Low']
+    close = hist['Close'].shift(1)
+    tr = pd.concat([high - low, abs(high - close), abs(low - close)], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean().iloc[-1]
+    return float(atr) if not pd.isna(atr) else float(hist['High'].iloc[-1] - hist['Low'].iloc[-1])
+
+
 def _calculate_macd(prices: pd.Series) -> tuple:
     if len(prices) < 26:
         return 0.0, 0.0, 'neutral'
@@ -82,6 +94,26 @@ def _calculate_support_resistance(hist: pd.DataFrame) -> tuple:
     return float(lows.min()), float(highs.max())
 
 
+def _calculate_smart_entry(current_price: float, support: float, atr: float, style: str = 'swing') -> float:
+    """지지선 + ATR 기반 매수가 계산"""
+    support_distance_pct = (current_price - support) / current_price * 100
+    atr_factors = {'day': 0.3, 'swing': 0.5, 'long': 0.7}
+    atr_factor = atr_factors.get(style, 0.5)
+    atr_entry = current_price - (atr * atr_factor)
+    buffer_pct = {'day': 0.01, 'swing': 0.02, 'long': 0.03}
+    support_entry = support * (1 + buffer_pct.get(style, 0.02))
+
+    if support_distance_pct <= 5:
+        entry = support_entry
+    else:
+        entry = atr_entry
+
+    min_entry = current_price * 0.93  # 스윙은 더 깊은 눌림 허용
+    entry = max(entry, min_entry)
+    entry = min(entry, current_price * 0.99)
+    return round(entry, 2)
+
+
 def analyze(ticker: str) -> Optional[dict]:
     """스윙 종목 분석 (4-7일 보유) - 섹터 촉매 + 옵션 분석
 
@@ -109,6 +141,7 @@ def analyze(ticker: str) -> Optional[dict]:
         # 기술적 지표
         rsi = _calculate_rsi(hist['Close'])
         macd_val, signal_val, macd_cross = _calculate_macd(hist['Close'])
+        atr = _calculate_atr(hist)
 
         # 이동평균
         ma20 = float(hist['Close'].rolling(20).mean().iloc[-1])
@@ -243,7 +276,7 @@ def analyze(ticker: str) -> Optional[dict]:
             'max_pain': round(max_pain, 2) if max_pain else None,
             'options_signal': options_signal,
             'sec_signals': sec_signals if sec_signals else None,
-            'recommended_entry': round(current_price * 0.95, 2),
+            'recommended_entry': _calculate_smart_entry(current_price, support, atr, 'swing'),
             'stop_loss': round(max(support * 0.95, current_price * (1 - get_stop_cap('swing'))), 2),
             'target': round(resistance * 0.95, 2),
             'support': round(support, 2),
