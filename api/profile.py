@@ -78,9 +78,10 @@ def calculate_profile_type(data: ProfileCreate) -> str:
     """
     성향 계산 알고리즘
     점수 = 경험(0-2) + 리스크허용(0-3) + 기간선호(0-3) + 수익기대(0-3)
-    - 0~4점: conservative (안정형)
-    - 5~8점: balanced (균형형)
-    - 9~12점: aggressive (공격형)
+    총점 범위: 0~11
+    - 0~3점: conservative (안정형)
+    - 4~7점: balanced (균형형)
+    - 8~11점: aggressive (공격형)
     """
     score = 0
 
@@ -97,13 +98,13 @@ def calculate_profile_type(data: ProfileCreate) -> str:
     score += duration_scores.get(data.duration_preference, 0)
 
     # 수익 기대 점수 (0-3)
-    profit_scores = {'stable': 0, 'moderate': 1, 'aggressive': 3}
+    profit_scores = {'stable': 0, 'moderate': 2, 'aggressive': 3}
     score += profit_scores.get(data.profit_expectation, 0)
 
     # 성향 분류
-    if score <= 4:
+    if score <= 3:
         return 'conservative'
-    elif score <= 8:
+    elif score <= 7:
         return 'balanced'
     else:
         return 'aggressive'

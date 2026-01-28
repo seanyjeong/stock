@@ -59,6 +59,7 @@
 	let portfolioExpanded = $state(browser ? localStorage.getItem('portfolioExpanded') !== 'false' : true);
 	let squeezeExpanded = $state(browser ? localStorage.getItem('squeezeExpanded') !== 'false' : true);
 	let recExpanded = $state(browser ? localStorage.getItem('recExpanded') !== 'false' : true);
+	let regshoExpanded = $state(browser ? localStorage.getItem('regshoExpanded') !== 'false' : true);
 
 	// 공지사항 팝업
 	let showAnnouncementPopup = $state(false);
@@ -98,6 +99,7 @@
 			localStorage.setItem('portfolioExpanded', String(portfolioExpanded));
 			localStorage.setItem('squeezeExpanded', String(squeezeExpanded));
 			localStorage.setItem('recExpanded', String(recExpanded));
+			localStorage.setItem('regshoExpanded', String(regshoExpanded));
 			localStorage.setItem('privacyMode', String(privacyMode));
 			localStorage.setItem('hiddenStocks', JSON.stringify([...hiddenStocks]));
 		}
@@ -484,6 +486,7 @@
 							<span class="summary-label">총 수익</span>
 							{#if privacyMode}
 								<span class="summary-value privacy-hidden">엿보기금지</span>
+								<span class="summary-percent">{formatPercent(portfolio.total.gain_pct)}</span>
 							{:else}
 								<span class="summary-value">{formatCurrency(portfolio.total.gain_usd)}</span>
 								<span class="summary-percent">{formatPercent(portfolio.total.gain_pct)}</span>
@@ -620,6 +623,7 @@
 										<div class="stock-gain {getGainClass(item.gain)}">
 											{#if privacyMode}
 												<span class="gain-amount privacy-hidden">엿보기금지</span>
+												<span class="gain-pct">{formatPercent(item.gain_pct)}</span>
 											{:else}
 												<span class="gain-amount">{formatCurrency(item.gain)}</span>
 												<span class="gain-pct">{formatPercent(item.gain_pct)}</span>
@@ -681,35 +685,42 @@
 			{#if squeeze?.squeeze_list?.length > 0}
 				{@const top5 = [...squeeze.squeeze_list].sort((a, b) => b.combined_score - a.combined_score).slice(0, 5)}
 				<section class="card regsho-card">
-					<div class="regsho-title-row">
+					<button class="regsho-title-row" onclick={() => regshoExpanded = !regshoExpanded}>
 						<h2><Icon name="fire" size={20} /> RegSHO Top 5</h2>
-						<a href="/squeeze" class="see-all-link">전체보기 →</a>
-					</div>
-					<p class="regsho-desc">숏스퀴즈 점수 상위 종목</p>
+						<div class="regsho-right">
+							<a href="/squeeze" class="see-all-link" onclick={(e) => e.stopPropagation()}>전체보기 →</a>
+							<span class="toggle-icon" class:expanded={regshoExpanded}>
+								<Icon name="arrow-right" size={14} />
+							</span>
+						</div>
+					</button>
+					{#if regshoExpanded}
+						<p class="regsho-desc">숏스퀴즈 점수 상위 종목</p>
 
-					<div class="squeeze-header-row">
-						<span class="col-ticker">티커</span>
-						<span class="col-metric">공매도</span>
-						<span class="col-metric">대차</span>
-						<span class="col-metric">커버일</span>
-						<span class="col-score">점수</span>
-					</div>
-					<div class="squeeze-list">
-						{#each top5 as item}
-							{@const isHolding = regsho?.holdings_on_list?.includes(item.ticker)}
-							<a href="/stock/{item.ticker}" class="squeeze-item" class:holding={isHolding}>
-								<span class="squeeze-ticker">
-									{item.ticker}
-									{#if item.zero_borrow}<span class="mini-badge zb">ZB</span>{/if}
-									{#if item.dilution_protected}<span class="mini-badge dp">DP</span>{/if}
-								</span>
-								<span class="squeeze-metric">{item.short_interest ? item.short_interest.toFixed(0) : '-'}</span>
-								<span class="squeeze-metric">{item.zero_borrow ? '불가' : (item.borrow_rate ? item.borrow_rate.toFixed(0) : '-')}</span>
-								<span class="squeeze-metric">{item.days_to_cover ? item.days_to_cover.toFixed(1) : '-'}</span>
-								<span class="squeeze-score-cell {item.rating.toLowerCase()}">{item.combined_score.toFixed(0)}</span>
-							</a>
-						{/each}
-					</div>
+						<div class="squeeze-header-row">
+							<span class="col-ticker">티커</span>
+							<span class="col-metric">공매도</span>
+							<span class="col-metric">대차</span>
+							<span class="col-metric">커버일</span>
+							<span class="col-score">점수</span>
+						</div>
+						<div class="squeeze-list">
+							{#each top5 as item}
+								{@const isHolding = regsho?.holdings_on_list?.includes(item.ticker)}
+								<a href="/stock/{item.ticker}" class="squeeze-item" class:holding={isHolding}>
+									<span class="squeeze-ticker">
+										{item.ticker}
+										{#if item.zero_borrow}<span class="mini-badge zb">ZB</span>{/if}
+										{#if item.dilution_protected}<span class="mini-badge dp">DP</span>{/if}
+									</span>
+									<span class="squeeze-metric">{item.short_interest ? item.short_interest.toFixed(0) : '-'}</span>
+									<span class="squeeze-metric">{item.zero_borrow ? '불가' : (item.borrow_rate ? item.borrow_rate.toFixed(0) : '-')}</span>
+									<span class="squeeze-metric">{item.days_to_cover ? item.days_to_cover.toFixed(1) : '-'}</span>
+									<span class="squeeze-score-cell {item.rating.toLowerCase()}">{item.combined_score.toFixed(0)}</span>
+								</a>
+							{/each}
+						</div>
+					{/if}
 				</section>
 			{/if}
 
@@ -1479,11 +1490,25 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
+		width: 100%;
+		background: none;
+		border: none;
+		padding: 0;
 		margin-bottom: 0.5rem;
+		cursor: pointer;
 	}
 
 	.regsho-title-row h2 {
 		margin: 0;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.regsho-right {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
 	}
 
 	.see-all-link {
