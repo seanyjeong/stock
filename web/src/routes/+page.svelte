@@ -51,6 +51,8 @@
 	let isAdmin = $state(false);
 	let blogExpanded = $state(browser ? localStorage.getItem('blogExpanded') !== 'false' : true);
 	let showGlossaryModal = $state(false);
+	let privacyMode = $state(browser ? localStorage.getItem('privacyMode') === 'true' : false);
+	let hiddenStocks = $state<Set<string>>(browser ? new Set(JSON.parse(localStorage.getItem('hiddenStocks') || '[]')) : new Set());
 
 	// 섹션 접기/펼치기 상태 (localStorage 저장)
 	let taxExpanded = $state(browser ? localStorage.getItem('taxExpanded') !== 'false' : true);
@@ -96,8 +98,19 @@
 			localStorage.setItem('portfolioExpanded', String(portfolioExpanded));
 			localStorage.setItem('squeezeExpanded', String(squeezeExpanded));
 			localStorage.setItem('recExpanded', String(recExpanded));
+			localStorage.setItem('privacyMode', String(privacyMode));
+			localStorage.setItem('hiddenStocks', JSON.stringify([...hiddenStocks]));
 		}
 	});
+
+	function toggleStockHidden(ticker: string) {
+		if (hiddenStocks.has(ticker)) {
+			hiddenStocks.delete(ticker);
+		} else {
+			hiddenStocks.add(ticker);
+		}
+		hiddenStocks = new Set(hiddenStocks); // 반응성 트리거
+	}
 
 	// 실시간 가격
 	let realtimePrices = $state<Record<string, { current: number; change_pct: number; source?: string }>>({});
@@ -444,6 +457,9 @@
 							{#if portfolioUpdatedAt}
 								<span class="updated-time">{formatUpdatedTime(portfolioUpdatedAt)}</span>
 							{/if}
+							<button class="privacy-btn" class:active={privacyMode} onclick={() => privacyMode = !privacyMode} title={privacyMode ? '금액 보이기' : '금액 숨기기'}>
+								{#if privacyMode}🙈{:else}👁️{/if}
+							</button>
 							<button class="refresh-btn" onclick={refreshPortfolio} disabled={portfolioRefreshing}>
 								<Icon name="refresh" size={16} />
 							</button>
@@ -454,19 +470,27 @@
 					<div class="summary-grid">
 						<div class="summary-card total">
 							<span class="summary-label">총 평가금</span>
-							<span class="summary-value">{formatCurrency(portfolio.total.value_usd)}</span>
-							<span class="summary-sub">{formatCurrency(portfolio.total.value_krw, 'KRW')}</span>
-							{#if taxCalc}
-								<span class="summary-after-tax">세후 {formatCurrency(portfolio.total.value_krw - taxCalc.taxKrw, 'KRW')}</span>
+							{#if privacyMode}
+								<span class="summary-value privacy-hidden">엿보기금지</span>
+							{:else}
+								<span class="summary-value">{formatCurrency(portfolio.total.value_usd)}</span>
+								<span class="summary-sub">{formatCurrency(portfolio.total.value_krw, 'KRW')}</span>
+								{#if taxCalc}
+									<span class="summary-after-tax">세후 {formatCurrency(portfolio.total.value_krw - taxCalc.taxKrw, 'KRW')}</span>
+								{/if}
 							{/if}
 						</div>
 						<div class="summary-card {getGainClass(portfolio.total.gain_usd)}">
 							<span class="summary-label">총 수익</span>
-							<span class="summary-value">{formatCurrency(portfolio.total.gain_usd)}</span>
-							<span class="summary-percent">{formatPercent(portfolio.total.gain_pct)}</span>
-							{#if taxCalc}
-								<span class="summary-sub">{formatCurrency(taxCalc.gainKrw, 'KRW')}</span>
-								<span class="summary-after-tax">세후 {formatCurrency(taxCalc.netProfitKrw, 'KRW')}</span>
+							{#if privacyMode}
+								<span class="summary-value privacy-hidden">엿보기금지</span>
+							{:else}
+								<span class="summary-value">{formatCurrency(portfolio.total.gain_usd)}</span>
+								<span class="summary-percent">{formatPercent(portfolio.total.gain_pct)}</span>
+								{#if taxCalc}
+									<span class="summary-sub">{formatCurrency(taxCalc.gainKrw, 'KRW')}</span>
+									<span class="summary-after-tax">세후 {formatCurrency(taxCalc.netProfitKrw, 'KRW')}</span>
+								{/if}
 							{/if}
 						</div>
 					</div>
@@ -477,28 +501,38 @@
 						{@const totalKrw = portfolio.total.value_krw + portfolio.cash_balance.krw}
 						<div class="total-account-row">
 							<span class="total-label">총 계좌</span>
-							<span class="total-value">
-								{formatCurrency(totalUsd)}
-							</span>
+							{#if privacyMode}
+								<span class="total-value privacy-hidden">엿보기금지</span>
+							{:else}
+								<span class="total-value">
+									{formatCurrency(totalUsd)}
+								</span>
+							{/if}
 						</div>
-						<div class="total-account-krw">
-							{formatCurrency(totalKrw, 'KRW')}
-						</div>
+						{#if !privacyMode}
+							<div class="total-account-krw">
+								{formatCurrency(totalKrw, 'KRW')}
+							</div>
+						{/if}
 					{/if}
 
 					<!-- 달러 잔고 -->
 					{#if portfolio.cash_balance}
 						<div class="cash-balance-row">
 							<span class="cash-label">달러 잔고</span>
-							<span class="cash-value" class:negative={portfolio.cash_balance.usd < 0}>
-								{formatCurrency(portfolio.cash_balance.usd)}
-								<span class="cash-krw">({formatCurrency(portfolio.cash_balance.krw, 'KRW')})</span>
-							</span>
+							{#if privacyMode}
+								<span class="cash-value privacy-hidden">엿보기금지</span>
+							{:else}
+								<span class="cash-value" class:negative={portfolio.cash_balance.usd < 0}>
+									{formatCurrency(portfolio.cash_balance.usd)}
+									<span class="cash-krw">({formatCurrency(portfolio.cash_balance.krw, 'KRW')})</span>
+								</span>
+							{/if}
 						</div>
 					{/if}
 
 					<!-- Tax Calculation (접기/펼치기) -->
-					{#if taxCalc}
+					{#if taxCalc && !privacyMode}
 						<div class="tax-section">
 							<button class="tax-toggle" onclick={() => taxExpanded = !taxExpanded}>
 								<span class="tax-header">예상 세금 (익절 시)</span>
@@ -537,7 +571,8 @@
 					<div class="stock-list">
 						{#each portfolio.holdings as item}
 							{@const squeezeInfo = getSqueezeForTicker(item.ticker)}
-							<div class="stock-card">
+							{@const isHidden = hiddenStocks.has(item.ticker)}
+							<div class="stock-card" class:hidden-stock={isHidden}>
 								<div class="stock-header">
 									<div class="stock-ticker-wrap">
 										<div class="ticker-row">
@@ -557,58 +592,81 @@
 											{:else if item.premarket_price}
 												<span class="market-badge pm">PM</span>
 											{/if}
+											<button class="stock-hide-btn" onclick={() => toggleStockHidden(item.ticker)} title={isHidden ? '보이기' : '숨기기'}>
+												{#if isHidden}👁️{:else}🙈{/if}
+											</button>
 										</div>
-										{#if squeezeInfo}
-											<div class="squeeze-tags">
-												{#if squeezeInfo.borrow_rate}
-													<span class="sq-tag br" title="대차이자">{squeezeInfo.borrow_rate}%</span>
-												{/if}
-												{#if squeezeInfo.short_interest}
-													<span class="sq-tag si" title="공매도비율">SI {squeezeInfo.short_interest}%</span>
-												{/if}
-												{#if squeezeInfo.regsho_days > 0}
-													<span class="sq-tag reg" title="RegSHO 등재일">+{squeezeInfo.regsho_days}일</span>
-												{/if}
-											</div>
-										{:else if item.company_name}
-											<span class="company-name">{item.company_name}</span>
+										{#if !isHidden}
+											{#if squeezeInfo}
+												<div class="squeeze-tags">
+													{#if squeezeInfo.borrow_rate}
+														<span class="sq-tag br" title="대차이자">{squeezeInfo.borrow_rate}%</span>
+													{/if}
+													{#if squeezeInfo.short_interest}
+														<span class="sq-tag si" title="공매도비율">SI {squeezeInfo.short_interest}%</span>
+													{/if}
+													{#if squeezeInfo.regsho_days > 0}
+														<span class="sq-tag reg" title="RegSHO 등재일">+{squeezeInfo.regsho_days}일</span>
+													{/if}
+												</div>
+											{:else if item.company_name}
+												<span class="company-name">{item.company_name}</span>
+											{/if}
 										{/if}
 									</div>
-									<div class="stock-gain {getGainClass(item.gain)}">
-										<span class="gain-amount">{formatCurrency(item.gain)}</span>
-										<span class="gain-pct">{formatPercent(item.gain_pct)}</span>
-									</div>
-								</div>
-								<div class="stock-details">
-									<div class="detail">
-										<span class="detail-label">보유</span>
-										<span class="detail-value">{item.shares}주</span>
-									</div>
-									<div class="detail">
-										<span class="detail-label">평단</span>
-										<span class="detail-value">{formatCurrency(item.avg_cost)}</span>
-									</div>
-									<div class="detail">
-										<span class="detail-label">현재가</span>
-										<span class="detail-value current">
-											{formatCurrency(item.current_price)}
-											{#if realtimePrices[item.ticker]?.source}
-												{@const src = realtimePrices[item.ticker].source}
-												{#if src === 'regular'}
-													<span class="price-tag live">🟢</span>
-												{:else if src === 'premarket'}
-													<span class="price-tag pm">PM</span>
-												{:else if src === 'afterhours'}
-													<span class="price-tag ah">AH</span>
-												{/if}
+									{#if isHidden}
+										<span class="hidden-label">엿보기금지</span>
+									{:else}
+										<div class="stock-gain {getGainClass(item.gain)}">
+											{#if privacyMode}
+												<span class="gain-amount privacy-hidden">엿보기금지</span>
+											{:else}
+												<span class="gain-amount">{formatCurrency(item.gain)}</span>
+												<span class="gain-pct">{formatPercent(item.gain_pct)}</span>
 											{/if}
-										</span>
-									</div>
-									<div class="detail">
-										<span class="detail-label">평가금</span>
-										<span class="detail-value">{formatCurrency(item.value)}</span>
-									</div>
+										</div>
+									{/if}
 								</div>
+								{#if !isHidden}
+									<div class="stock-details">
+										<div class="detail">
+											<span class="detail-label">보유</span>
+											{#if privacyMode}
+												<span class="detail-value privacy-hidden">엿보기금지</span>
+											{:else}
+												<span class="detail-value">{item.shares}주</span>
+											{/if}
+										</div>
+										<div class="detail">
+											<span class="detail-label">평단</span>
+											<span class="detail-value">{formatCurrency(item.avg_cost)}</span>
+										</div>
+										<div class="detail">
+											<span class="detail-label">현재가</span>
+											<span class="detail-value current">
+												{formatCurrency(item.current_price)}
+												{#if realtimePrices[item.ticker]?.source}
+													{@const src = realtimePrices[item.ticker].source}
+													{#if src === 'regular'}
+														<span class="price-tag live">🟢</span>
+													{:else if src === 'premarket'}
+														<span class="price-tag pm">PM</span>
+													{:else if src === 'afterhours'}
+														<span class="price-tag ah">AH</span>
+													{/if}
+												{/if}
+											</span>
+										</div>
+										<div class="detail">
+											<span class="detail-label">평가금</span>
+											{#if privacyMode}
+												<span class="detail-value privacy-hidden">엿보기금지</span>
+											{:else}
+												<span class="detail-value">{formatCurrency(item.value)}</span>
+											{/if}
+										</div>
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -2012,5 +2070,69 @@
 	.price-tag.ah {
 		background: rgba(31, 111, 235, 0.3);
 		color: #58a6ff;
+	}
+
+	/* Privacy Mode 스타일 */
+	.privacy-btn {
+		background: #21262d;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		padding: 0.35rem 0.5rem;
+		cursor: pointer;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.15s;
+	}
+
+	.privacy-btn:hover {
+		background: #30363d;
+		border-color: #58a6ff;
+	}
+
+	.privacy-btn.active {
+		background: rgba(248, 81, 73, 0.2);
+		border-color: #f85149;
+	}
+
+	.privacy-hidden {
+		color: #8b949e !important;
+		font-size: 0.7rem !important;
+		font-weight: 500 !important;
+		letter-spacing: 0.5px;
+	}
+
+	/* 개별 주식 숨기기 버튼 */
+	.stock-hide-btn {
+		background: none;
+		border: none;
+		padding: 0.15rem 0.3rem;
+		cursor: pointer;
+		font-size: 0.75rem;
+		opacity: 0.5;
+		transition: opacity 0.15s;
+		margin-left: auto;
+	}
+
+	.stock-hide-btn:hover {
+		opacity: 1;
+	}
+
+	/* 숨겨진 주식 카드 */
+	.stock-card.hidden-stock {
+		background: #1a1f26;
+		border: 1px dashed #30363d;
+		padding: 0.625rem 0.875rem;
+	}
+
+	.stock-card.hidden-stock .stock-header {
+		margin-bottom: 0;
+	}
+
+	.hidden-label {
+		font-size: 0.75rem;
+		color: #6e7681;
+		font-style: italic;
 	}
 </style>
