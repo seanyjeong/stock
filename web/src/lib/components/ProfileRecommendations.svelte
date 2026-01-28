@@ -104,16 +104,21 @@
 		const stopLoss = rec.stop_loss;
 		const entryPrice = rec.recommended_entry;
 
-		// 손절라인 근접 (5% 이내) 또는 이탈
-		const stopDistance = ((currentPrice - stopLoss) / stopLoss) * 100;
-		if (stopDistance <= 5) {
-			return { disqualified: true, reason: `손절라인 근접 (${stopDistance.toFixed(1)}%)` };
-		}
-		if (currentPrice < stopLoss) {
+		// 1. 손절라인 이탈 → 무조건 탈락
+		if (currentPrice <= stopLoss) {
 			return { disqualified: true, reason: '손절라인 이탈' };
 		}
 
-		// 매수가 대비 너무 높아짐 (15% 이상 갭업) - 단타는 더 엄격 (10%)
+		// 2. 매수가 아래로 내려갔고 + 손절라인에 가까움 (손절가 대비 3% 이내) → 탈락
+		if (currentPrice < entryPrice) {
+			const stopDistance = ((currentPrice - stopLoss) / stopLoss) * 100;
+			if (stopDistance <= 3) {
+				return { disqualified: true, reason: `손절라인 임박 (${stopDistance.toFixed(1)}%)` };
+			}
+		}
+
+		// 3. 매수가 대비 너무 높아짐 (갭업) → 탈락
+		// 단타: +10%, 스윙/장기: +15%
 		const entryGap = ((currentPrice - entryPrice) / entryPrice) * 100;
 		const maxGap = profileType === 'aggressive' ? 10 : 15;
 		if (entryGap > maxGap) {
