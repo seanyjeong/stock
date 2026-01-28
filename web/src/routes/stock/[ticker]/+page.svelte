@@ -114,6 +114,12 @@
 			if (response.ok) {
 				isInWatchlist = true;
 				showToast(`${ticker} 관심종목에 추가됨`);
+			} else if (response.status === 401) {
+				// 토큰 만료 - 로그아웃 처리
+				localStorage.removeItem('access_token');
+				localStorage.removeItem('user');
+				showToast('세션 만료. 다시 로그인해주세요');
+				setTimeout(() => goto('/login'), 1500);
 			} else {
 				const data = await response.json();
 				showToast(data.detail || '추가 실패');
