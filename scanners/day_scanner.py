@@ -116,9 +116,9 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         if current_price < 0.5 or current_price > 100:
             return None
 
-        # 시총 필터: $1M ~ $2B (나노~소형주)
+        # 시총 필터: $1M ~ $10B (나노~중형주 포함)
         market_cap = info.get('marketCap', 0) or 0
-        if market_cap < 1e6 or market_cap > 2e9:
+        if market_cap < 1e6 or market_cap > 10e9:
             return None
 
         # 기술적 지표
@@ -126,13 +126,20 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         macd_val, signal_val, macd_cross = _calculate_macd(hist['Close'])
         atr = _calculate_atr(hist)
 
-        # 거래량 급증 체크
+        # 거래량 급증 체크 (장 마감 전이면 전일 데이터 사용)
         vol_avg = hist['Volume'].tail(10).mean()
         vol_today = hist['Volume'].iloc[-1]
+
+        # 당일 볼륨이 평균의 10% 미만이면 프리/애프터마켓 → 전일 데이터 사용
+        if vol_avg > 0 and vol_today < vol_avg * 0.1 and len(hist) >= 2:
+            vol_today = hist['Volume'].iloc[-2]
+            # 평균도 재계산 (당일 제외)
+            vol_avg = hist['Volume'].iloc[-11:-1].mean() if len(hist) >= 11 else hist['Volume'].iloc[:-1].mean()
+
         volume_ratio = float(vol_today / vol_avg) if vol_avg > 0 else 1.0
 
-        # 볼륨 1.0x 미만 → 즉시 제외 (관심 없는 종목)
-        if volume_ratio < 1.0:
+        # 볼륨 0.8x 미만 → 제외 (관심 없는 종목, 약간 완화)
+        if volume_ratio < 0.8:
             return None
 
         # 모멘텀 체크 (전일 대비 갭/연속 상승)
@@ -290,8 +297,9 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         except Exception:
             pass
 
-        if score < 40:
-            return None
+        # 점수 임계값은 runner.py에서 처리 (최소 3개 보장)
+        # if score < 40:
+        #     return None
 
         support, resistance = _calculate_support_resistance(hist)
 
@@ -303,11 +311,10 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
         stop_loss = round(current_price - stop_distance, 2)
         target = round(current_price * 1.08, 2)
 
-        # R:R 비율 최소 1.5:1 필터
+        # R:R 비율 계산 (필터 대신 경고로 표시)
         reward = target - current_price
         risk = current_price - stop_loss
-        if risk > 0 and reward / risk < 1.5:
-            return None
+        rr_ratio = round(reward / risk, 2) if risk > 0 else 0
 
         result = {
             'ticker': ticker,
@@ -329,7 +336,17 @@ def analyze(ticker: str, news_score: float) -> Optional[dict]:
             'target': target,
             'support': round(support, 2),
             'resistance': round(resistance, 2),
+            'rr_ratio': rr_ratio,
         }
+
+        # 40점 미만 또는 R:R < 1.5 이면 주의 표시
+        warnings = []
+        if score < 40:
+            warnings.append(f"점수 {score:.0f}점 (40점 미만)")
+        if rr_ratio < 1.5:
+            warnings.append(f"R:R {rr_ratio}:1 (1.5 미만)")
+        if warnings:
+            result['warnings'] = warnings
 
         # 스퀴즈 정보는 있을 때만 포함
         if squeeze_score > 0:

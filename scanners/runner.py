@@ -72,17 +72,32 @@ def run_day(test: bool = False) -> list:
         return []
 
     pool = candidates[:10] if test else candidates
-    results = []
+    all_results = []
 
     for item in pool:
         ticker = item['ticker']
         result = day_scanner.analyze(ticker, item['total_score'] or 0)
         if result:
             result = _enrich_result(result)
-            results.append(result)
+            all_results.append(result)
         time.sleep(0.3)
 
-    print(f"  단타 추천: {len(results)}개")
+    # 점수순 정렬
+    all_results.sort(key=lambda x: x['score'], reverse=True)
+
+    # 40점 이상 필터 + 최소 3개 보장
+    MIN_SCORE = 40
+    MIN_COUNT = 3
+
+    qualified = [r for r in all_results if r['score'] >= MIN_SCORE]
+
+    if len(qualified) >= MIN_COUNT:
+        results = qualified
+    else:
+        # 40점 미만이어도 상위 3개는 포함
+        results = all_results[:MIN_COUNT]
+
+    print(f"  단타 추천: {len(results)}개 (전체 {len(all_results)}개 분석)")
     return results
 
 

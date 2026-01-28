@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
 
 from db import get_db
-from api.auth import get_current_user
+from api.auth import require_user
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
@@ -120,7 +120,7 @@ def ensure_default_folder(user_id: int):
 
 
 @router.get("/")
-async def get_watchlist(user: dict = Depends(get_current_user)):
+async def get_watchlist(user: dict = Depends(require_user)):
     """사용자의 관심 종목 목록 조회 (현재가 포함)"""
     ensure_watchlist_table()
     conn = get_db()
@@ -222,7 +222,7 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
 
 
 @router.post("/")
-async def add_to_watchlist(data: WatchlistAdd, user: dict = Depends(get_current_user)):
+async def add_to_watchlist(data: WatchlistAdd, user: dict = Depends(require_user)):
     """관심 종목 추가"""
     ensure_watchlist_table()
     conn = get_db()
@@ -264,7 +264,7 @@ async def add_to_watchlist(data: WatchlistAdd, user: dict = Depends(get_current_
 
 
 @router.put("/{item_id}")
-async def update_watchlist_item(item_id: int, data: WatchlistUpdate, user: dict = Depends(get_current_user)):
+async def update_watchlist_item(item_id: int, data: WatchlistUpdate, user: dict = Depends(require_user)):
     """관심 종목 수정"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -289,7 +289,7 @@ async def update_watchlist_item(item_id: int, data: WatchlistUpdate, user: dict 
 
 
 @router.delete("/{item_id}")
-async def remove_from_watchlist(item_id: int, user: dict = Depends(get_current_user)):
+async def remove_from_watchlist(item_id: int, user: dict = Depends(require_user)):
     """관심 종목 삭제"""
     conn = get_db()
     cur = conn.cursor()
@@ -313,7 +313,7 @@ async def remove_from_watchlist(item_id: int, user: dict = Depends(get_current_u
 
 
 @router.delete("/ticker/{ticker}")
-async def remove_by_ticker(ticker: str, user: dict = Depends(get_current_user)):
+async def remove_by_ticker(ticker: str, user: dict = Depends(require_user)):
     """티커로 관심 종목 삭제"""
     conn = get_db()
     cur = conn.cursor()
@@ -339,7 +339,7 @@ async def remove_by_ticker(ticker: str, user: dict = Depends(get_current_user)):
 # ===== Folder CRUD =====
 
 @router.get("/folders")
-async def get_folders(user: dict = Depends(get_current_user)):
+async def get_folders(user: dict = Depends(require_user)):
     """폴더 목록 조회"""
     ensure_watchlist_table()
     ensure_default_folder(user["id"])
@@ -386,7 +386,7 @@ async def get_folders(user: dict = Depends(get_current_user)):
 
 
 @router.post("/folders")
-async def create_folder(data: FolderCreate, user: dict = Depends(get_current_user)):
+async def create_folder(data: FolderCreate, user: dict = Depends(require_user)):
     """폴더 생성"""
     ensure_watchlist_table()
     conn = get_db()
@@ -423,7 +423,7 @@ async def create_folder(data: FolderCreate, user: dict = Depends(get_current_use
 
 
 @router.put("/folders/{folder_id}")
-async def update_folder(folder_id: int, data: FolderUpdate, user: dict = Depends(get_current_user)):
+async def update_folder(folder_id: int, data: FolderUpdate, user: dict = Depends(require_user)):
     """폴더 수정"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -472,7 +472,7 @@ async def update_folder(folder_id: int, data: FolderUpdate, user: dict = Depends
 
 
 @router.delete("/folders/{folder_id}")
-async def delete_folder(folder_id: int, user: dict = Depends(get_current_user)):
+async def delete_folder(folder_id: int, user: dict = Depends(require_user)):
     """폴더 삭제 (기본 폴더 제외, 종목은 폴더 없음으로 이동)"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -505,7 +505,7 @@ async def delete_folder(folder_id: int, user: dict = Depends(get_current_user)):
 
 
 @router.put("/{item_id}/folder")
-async def move_to_folder(item_id: int, folder_id: int | None = None, user: dict = Depends(get_current_user)):
+async def move_to_folder(item_id: int, folder_id: int | None = None, user: dict = Depends(require_user)):
     """종목을 다른 폴더로 이동"""
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)

@@ -471,6 +471,21 @@
 						</div>
 					</div>
 
+					<!-- 총 계좌 (주식 + 잔고) -->
+					{#if portfolio.cash_balance}
+						{@const totalUsd = portfolio.total.value_usd + portfolio.cash_balance.usd}
+						{@const totalKrw = portfolio.total.value_krw + portfolio.cash_balance.krw}
+						<div class="total-account-row">
+							<span class="total-label">총 계좌</span>
+							<span class="total-value">
+								{formatCurrency(totalUsd)}
+							</span>
+						</div>
+						<div class="total-account-krw">
+							{formatCurrency(totalKrw, 'KRW')}
+						</div>
+					{/if}
+
 					<!-- 달러 잔고 -->
 					{#if portfolio.cash_balance}
 						<div class="cash-balance-row">
@@ -1072,6 +1087,38 @@
 	.summary-card.negative .summary-value,
 	.summary-card.negative .summary-percent {
 		color: #f85149;
+	}
+
+	/* Total Account Row */
+	.total-account-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem;
+		background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+		border-radius: 8px 8px 0 0;
+	}
+
+	.total-account-row .total-label {
+		font-size: 0.85rem;
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 500;
+	}
+
+	.total-account-row .total-value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #ffffff;
+	}
+
+	.total-account-krw {
+		text-align: right;
+		padding: 0.5rem 0.75rem;
+		background: #21262d;
+		border-radius: 0 0 8px 8px;
+		font-size: 0.9rem;
+		color: #8b949e;
+		margin-bottom: 0.75rem;
 	}
 
 	/* Cash Balance Row */
