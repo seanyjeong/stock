@@ -57,6 +57,16 @@ export interface Recommendation {
 	on_regsho: boolean;
 	rsi: number;
 	volume_surge: number;
+	// 스윙 추가 필드
+	hold_days?: number;
+	support?: number;
+	resistance?: number;
+	// 장기 추가 필드
+	name?: string;
+	market_cap_b?: number;
+	pe_ratio?: number;
+	yearly_return_pct?: number;
+	hold_months?: number;
 }
 
 export interface RecommendationCategory {

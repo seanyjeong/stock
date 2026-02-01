@@ -22,7 +22,15 @@ const API_BASE = env.API_URL || 'http://localhost:8000';
 
 async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Promise<T | null> {
 	try {
-		const response = await fetch(`${API_BASE}${endpoint}`);
+		// 캐시 무효화를 위해 타임스탬프 추가
+		const separator = endpoint.includes('?') ? '&' : '?';
+		const url = `${API_BASE}${endpoint}${separator}_t=${Date.now()}`;
+		const response = await fetch(url, {
+			headers: {
+				'Cache-Control': 'no-cache, no-store, must-revalidate',
+				'Pragma': 'no-cache'
+			}
+		});
 		if (!response.ok) {
 			console.error(`API error ${endpoint}: ${response.status}`);
 			return null;
@@ -35,7 +43,12 @@ async function fetchApi<T>(endpoint: string, fetch: typeof globalThis.fetch): Pr
 }
 
 export const load: PageServerLoad = async ({ fetch, setHeaders }) => {
-	setHeaders({ 'cache-control': 'no-cache, max-age=0' });
+	// 브라우저 캐시 완전 비활성화
+	setHeaders({
+		'cache-control': 'no-cache, no-store, must-revalidate',
+		'pragma': 'no-cache',
+		'expires': '0'
+	});
 
 	// Portfolio is loaded client-side with auth token
 	const [regsho, recommendations, blog, announcements, squeeze] = await Promise.all([
@@ -54,6 +67,8 @@ export const load: PageServerLoad = async ({ fetch, setHeaders }) => {
 		blog,
 		announcements,
 		squeeze,
+		// 데이터 로드 시간을 포함해 클라이언트에서 캐시 여부 확인 가능
+		_loadedAt: Date.now(),
 		error: hasData ? null : 'Failed to load data from API'
 	};
 };
